@@ -8,6 +8,7 @@
 // - Removed sentAtBlockHeight field as block-height sorting is replaced by timestamp sorting.
 // - MAJOR: Added blockchain detection types for new automatic onboarding system
 // - Added UtxoInfo type for Fast Messages feature
+// - Added NamespaceOption type for VerusID registration namespace selection
 
 // Credentials for Verus RPC connection
 export interface Credentials {
@@ -97,4 +98,13 @@ export interface ParallelDetectionResult {
     blockchains: BlockchainDetectionResult[];
     total_detected: number;
     detection_duration_ms: number;
+}
+
+// NEW: VerusID registration types
+export interface NamespaceOption {
+    name: string;
+    currency_id: string;
+    registration_fee: number;
+    fully_qualified_name: string;
+    fee_currency_name: string; // NEW: The actual currency name for the registration fee (e.g. "VRSCTEST", "SECOND")
 } 

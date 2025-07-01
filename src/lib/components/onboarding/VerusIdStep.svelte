@@ -11,10 +11,14 @@
 // - Enhanced UX with smooth loading transitions and real-time updates
 // - Added currency symbol support - balances now display with proper ticker (e.g., "12.5 VRSC")
 // - Handles edge case where all identities get filtered out due to missing private keys
+// - Added "Get VerusID" button underneath dropdown to open registration modal
+// - Integrated VerusIdRegistrationModal for new VerusID creation flow
 
     import { createEventDispatcher, onMount } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import CustomDropdown from '../CustomDropdown.svelte';
+    import Button from '../Button.svelte';
+    import VerusIdRegistrationModal from '../verusid-registration/VerusIdRegistrationModal.svelte';
 
     // Import Shared Types
     import type { Credentials, FormattedIdentity, DropdownOption } from '$lib/types';
@@ -35,6 +39,7 @@
     let fetchError: string | null = null;
     let balanceLoadingStatus: Map<string, BalanceLoadingStatus> = new Map(); // Track balance loading per identity
     let showingSkeleton = false;
+    let showRegistrationModal = false;
 
     // --- Event Dispatcher ---
     const dispatch = createEventDispatcher<{
@@ -245,6 +250,14 @@
         dispatch('idSelected', { identity: selectedFullIdentity }); 
     }
 
+    function handleGetVerusId() {
+        showRegistrationModal = true;
+    }
+
+    function handleCloseRegistrationModal() {
+        showRegistrationModal = false;
+    }
+
 </script>
 
 <div class="step-content-area">
@@ -288,6 +301,16 @@
             placeholder="-- Please choose an ID --"
             on:change={handleIdSelection} 
         />
+        
+        <!-- Get VerusID Button -->
+        <div class="mt-4 flex justify-center">
+            <Button
+                variant="secondary"
+                on:click={handleGetVerusId}
+            >
+                Get VerusID
+            </Button>
+        </div>
     {:else if fetchStatus === 'success' && loginIdentities.length === 0}
         <div class="mt-4 p-3 bg-yellow-900/40 border border-yellow-700/50 rounded-md text-center">
             <p class="text-sm font-medium text-yellow-300 select-none cursor-default">No Eligible IDs Found</p>
@@ -295,6 +318,12 @@
         </div>
     {/if}
 </div>
+
+<!-- VerusID Registration Modal -->
+<VerusIdRegistrationModal 
+    bind:show={showRegistrationModal}
+    on:close={handleCloseRegistrationModal}
+/>
 
 <style>
  .step-content-area {

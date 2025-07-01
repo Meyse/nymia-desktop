@@ -13,6 +13,7 @@
 // - Added `pub mod identity_rpc;` to declare the new module for identity RPC logic.
 // - Added `pub mod message_rpc;` to declare the new module for message RPC logic.
 // - Added `pub mod wallet_rpc;` to declare the new module for wallet RPC logic.
+// - Added `pub mod namespace_rpc;` to declare the new module for namespace/currency RPC logic.
 // - Corrected use statements and function call paths to reflect new module structure.
 // - SECURITY: Integrated cryptographic message signing and verification system
 // - Zero-trust messaging: Only verified messages are displayed, unverified messages are silently filtered
@@ -27,6 +28,7 @@ pub mod rpc_client;
 pub mod identity_rpc;
 pub mod message_rpc;
 pub mod wallet_rpc;
+pub mod namespace_rpc;
 
 use crate::rpc_client::VerusRpcError; // Corrected
 use crate::credentials::CredentialError; // Import credential error
@@ -346,7 +348,9 @@ pub fn run() {
             crate::settings::save_messages_for_conversation,
             crate::settings::load_messages_for_conversation,
             crate::settings::delete_chat_data,
-            get_utxo_info
+            get_utxo_info,
+            // Namespace commands
+            crate::namespace_rpc::get_available_namespaces
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

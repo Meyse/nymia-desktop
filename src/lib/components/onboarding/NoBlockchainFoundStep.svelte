@@ -117,7 +117,7 @@
         <div>
             <h3 class="text-base font-medium text-dark-text-primary mb-2 select-none cursor-default">Start Your Blockchain</h3>
             <p class="text-xs text-dark-text-secondary mb-4 leading-relaxed select-none cursor-default">
-                Your blockchain daemon might not be running yet. Make sure to start your blockchain software before connecting Nymia.
+                Your blockchain daemon might not be running yet. Make sure to start your node before connecting Nymia.
             </p>
                          <Button
                  variant="secondary"
