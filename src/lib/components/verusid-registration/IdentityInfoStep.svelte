@@ -404,6 +404,9 @@
             autocapitalize="off"
             spellcheck="false"
           />
+          <div class="text-xs text-white/50 mt-1 px-1">
+            Not case sensitive • All character sets supported
+          </div>
         </div>
         
         <!-- Dot separator -->

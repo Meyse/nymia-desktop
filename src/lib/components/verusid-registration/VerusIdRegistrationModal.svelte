@@ -266,8 +266,8 @@
         <div class="flex items-center space-x-4">
           <!-- Name Preview -->
           {#if registrationData.preview}
-            <span class="text-xs text-brand-green/80 font-medium">Creating:</span>
-            <span class="bg-black/60 border border-brand-green/30 rounded-lg px-[12px] py-[4px] text-sm text-white font-mono font-medium">{registrationData.preview}</span>
+            <span class="text-xs text-white/55 font-medium">Creating:</span>
+            <span class="bg-black/60 border border-brand-green/30 rounded-lg px-[12px] py-[4px] text-base text-white font-bold">{registrationData.preview}</span>
           {/if}
           
           <!-- Navigation buttons -->
