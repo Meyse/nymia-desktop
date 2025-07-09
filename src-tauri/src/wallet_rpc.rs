@@ -1,10 +1,11 @@
 // File: src-tauri/src/wallet_rpc.rs
-// Description: Handles general wallet-related RPC calls.
+// Description: Handles general wallet-related RPC calls including currency conversion estimates.
 // Changes:
 // - Moved connect_and_get_block_height and get_private_balance functions from verus_rpc.rs.
 // - Added necessary use statements for rpc_client and serde_json.
 // - Added UtxoInfo struct and get_utxo_info function for Fast Messages feature
 // - Implemented z_listunspent RPC call with UTXO filtering and processing
+// - Added EstimateConversionRequest/Response structures and estimate_conversion function for USD pricing
 
 use serde_json::{json, Value};
 use super::rpc_client::{make_rpc_call, VerusRpcError};
@@ -18,6 +19,24 @@ pub struct UtxoInfo {
     pub total_spendable_value: f64, // Sum of usable UTXOs only
     pub largest_utxo: f64,          // Largest single UTXO amount
     pub smallest_utxo: f64,         // Smallest usable UTXO amount (>= 0.0001)
+}
+
+// Request structure for estimateconversion
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EstimateConversionRequest {
+    pub currency: String,
+    pub convertto: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+    pub amount: f64,
+}
+
+// Response structure for estimateconversion (simplified to get the key field)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EstimateConversionResponse {
+    #[serde(rename = "estimatedcurrencyout")]
+    pub estimated_currency_out: f64,
+    // We can add other fields later if needed
 }
 
 // Function to connect and get block height
@@ -122,4 +141,85 @@ pub async fn get_utxo_info(
     );
 
     Ok(utxo_info)
+}
+
+// NEW function to estimate currency conversion
+pub async fn estimate_conversion(
+    rpc_user: String,
+    rpc_pass: String,
+    rpc_port: u16,
+    request: EstimateConversionRequest,
+) -> Result<f64, VerusRpcError> {
+    log::info!(
+        "Estimating conversion: {} {} to {} {}",
+        request.amount,
+        request.currency,
+        request.convertto,
+        request.via.as_ref().map_or("".to_string(), |v| format!("via {}", v))
+    );
+
+    // Build the JSON request for the RPC call
+    let mut conversion_params = json!({
+        "currency": request.currency,
+        "convertto": request.convertto,
+        "amount": request.amount
+    });
+
+    // Add 'via' parameter if provided
+    if let Some(via) = request.via {
+        conversion_params["via"] = json!(via);
+    }
+
+    // Make the RPC call
+    let response: Value = make_rpc_call(
+        &rpc_user,
+        &rpc_pass,
+        rpc_port,
+        "estimateconversion",
+        vec![conversion_params],
+    ).await?;
+
+    log::debug!("Raw estimateconversion response: {:?}", response);
+
+    // Extract the estimated currency out value
+    let estimated_out = response["estimatedcurrencyout"]
+        .as_f64()
+        .ok_or(VerusRpcError::ParseError(
+            "Missing or invalid 'estimatedcurrencyout' in response".to_string(),
+        ))?;
+
+    log::info!(
+        "Conversion estimate: {} {} = {} {}",
+        request.amount,
+        request.currency,
+        estimated_out,
+        request.convertto
+    );
+
+    Ok(estimated_out)
+}
+
+// Tauri command wrapper for estimate_conversion
+#[tauri::command]
+pub async fn estimate_currency_conversion(
+    app: tauri::AppHandle,
+    currency: String,
+    convert_to: String,
+    via: Option<String>,
+    amount: f64,
+) -> Result<f64, String> {
+    // Load credentials
+    let creds = crate::credentials::load_credentials(app).await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    let request = EstimateConversionRequest {
+        currency,
+        convertto: convert_to,
+        via,
+        amount,
+    };
+
+    estimate_conversion(creds.rpc_user, creds.rpc_pass, creds.rpc_port, request)
+        .await
+        .map_err(|e| format!("Conversion estimate failed: {}", e))
 } 

@@ -350,7 +350,10 @@ pub fn run() {
             crate::settings::delete_chat_data,
             get_utxo_info,
             // Namespace commands
-            crate::namespace_rpc::get_available_namespaces
+            crate::namespace_rpc::get_available_namespaces,
+            crate::namespace_rpc::get_root_currency,
+            // Currency conversion commands
+            crate::wallet_rpc::estimate_currency_conversion
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

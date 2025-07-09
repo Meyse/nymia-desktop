@@ -133,9 +133,9 @@
 
         <!-- Scenario 2: Custom Configuration -->
         <div>
-            <h3 class="text-base font-medium text-dark-text-primary mb-2 select-none cursor-default">Custom Configuration</h3>
+            <h3 class="text-base font-medium text-dark-text-primary mb-2 select-none cursor-default">Change Configuration Location</h3>
             <p class="text-xs text-dark-text-secondary mb-4 leading-relaxed select-none cursor-default">
-                Your blockchain is running but the configuration files are in a custom location that Nymia couldn't detect automatically.
+                Your blockchain might be running but the configuration files are in a custom location that Nymia couldn't detect automatically. You can manually select the folder where your configuration files are located.
             </p>
                          <Button
                  variant="secondary"

@@ -5,6 +5,8 @@
 // - Added fee currency resolution based on idimportfees logic
 // - Implemented parallel getcurrency calls to resolve currency names
 // - Enhanced NamespaceOption to include actual fee currency name
+// - Added get_root_currency function to fetch blockchain's native currency data
+// - Added blockchain ID to currency name mapping for getcurrency calls
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -115,6 +117,18 @@ pub struct NamespaceOption {
     pub registration_fee: f64,
     pub fully_qualified_name: String,
     pub fee_currency_name: String,
+    pub options: u32,
+    pub id_referral_levels: u32,
+}
+
+// Response structure for getcurrency (for root currency)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RootCurrencyResponse {
+    pub name: String,
+    pub currencyid: String,
+    pub idregistrationfees: f64,
+    pub idreferrallevels: u32,
+    // Only include the fields we need for root currency
 }
 
 #[tauri::command]
@@ -207,51 +221,67 @@ pub async fn get_available_namespaces(
     
     println!("Found {} currencies passing initial filters", valid_currency_infos.len());
     
-    // Second pass: make parallel getcurrency calls to resolve fee currencies
-    let mut namespace_futures = Vec::new();
+    // Second pass: make batched getcurrency calls to resolve fee currencies (5 at a time)
+    println!("Processing {} namespaces in batches of 5...", valid_currency_infos.len());
     
-    for currency_info in valid_currency_infos {
-        let currency_id = currency_info.currencydefinition.currencyid.clone();
-        let rpc_user = creds.rpc_user.clone();
-        let rpc_pass = creds.rpc_pass.clone();
-        let rpc_port = creds.rpc_port;
-        
-        let future = async move {
-            resolve_namespace_fee_currency(
-                currency_info,
-                &rpc_user,
-                &rpc_pass,
-                rpc_port,
-            ).await
-        };
-        
-        namespace_futures.push(future);
-    }
-    
-    // Execute all getcurrency calls in parallel
-    println!("Making {} parallel getcurrency calls...", namespace_futures.len());
-    
-    if namespace_futures.is_empty() {
+    if valid_currency_infos.is_empty() {
         println!("No namespaces to process - returning empty list");
         return Ok(Vec::new());
     }
     
-    let namespace_results = futures::future::join_all(namespace_futures).await;
-    println!("Completed {} getcurrency calls, processing results...", namespace_results.len());
-    
-    // Collect successful results
     let mut valid_namespaces = Vec::new();
-    for (index, result) in namespace_results.into_iter().enumerate() {
-        match result {
-            Ok(namespace) => {
-                println!("✓ Result {}: Successfully resolved namespace: {} (fee: {} {})", 
-                    index + 1, namespace.name, namespace.registration_fee, namespace.fee_currency_name);
-                valid_namespaces.push(namespace);
+    let batch_size = 5;
+    let total_batches = (valid_currency_infos.len() + batch_size - 1) / batch_size;
+    
+    // Process in batches
+    for (batch_index, batch) in valid_currency_infos.chunks(batch_size).enumerate() {
+        println!("Processing batch {}/{} ({} items)...", batch_index + 1, total_batches, batch.len());
+        
+        // Create futures for this batch
+        let mut batch_futures = Vec::new();
+        
+        for currency_info in batch {
+            let currency_id = currency_info.currencydefinition.currencyid.clone();
+            let rpc_user = creds.rpc_user.clone();
+            let rpc_pass = creds.rpc_pass.clone();
+            let rpc_port = creds.rpc_port;
+            let currency_info_clone = currency_info.clone();
+            
+            let future = async move {
+                resolve_namespace_fee_currency(
+                    currency_info_clone,
+                    &rpc_user,
+                    &rpc_pass,
+                    rpc_port,
+                ).await
+            };
+            
+            batch_futures.push(future);
+        }
+        
+        // Execute this batch in parallel
+        let batch_results = futures::future::join_all(batch_futures).await;
+        
+        // Process batch results
+        for (local_index, result) in batch_results.into_iter().enumerate() {
+            let global_index = batch_index * batch_size + local_index + 1;
+            match result {
+                Ok(namespace) => {
+                    println!("✓ Result {}: Successfully resolved namespace: {} (fee: {} {})", 
+                        global_index, namespace.name, namespace.registration_fee, namespace.fee_currency_name);
+                    valid_namespaces.push(namespace);
+                }
+                Err(e) => {
+                    println!("✗ Result {}: Failed to resolve namespace: {}", global_index, e);
+                    // Skip this namespace as requested
+                }
             }
-            Err(e) => {
-                println!("✗ Result {}: Failed to resolve namespace: {}", index + 1, e);
-                // Skip this namespace as requested
-            }
+        }
+        
+        // Small delay between batches to be nice to the RPC server
+        if batch_index < total_batches - 1 {
+            println!("Waiting 100ms before next batch...");
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
     }
     
@@ -261,6 +291,75 @@ pub async fn get_available_namespaces(
     valid_namespaces.sort_by(|a, b| a.name.cmp(&b.name));
     
     Ok(valid_namespaces)
+}
+
+// Map blockchain ID to currency name for getcurrency calls
+fn get_currency_name_for_blockchain(blockchain_id: &str) -> Option<String> {
+    match blockchain_id {
+        "verus-testnet" => Some("vrsctest".to_string()),
+        "verus" => Some("vrsc".to_string()),
+        "chips" => Some("chips".to_string()),
+        "vdex" => Some("vdex".to_string()),
+        "varrr" => Some("varrr".to_string()),
+        _ => None,
+    }
+}
+
+// Get root currency information for a blockchain
+#[tauri::command]
+pub async fn get_root_currency(
+    app: tauri::AppHandle,
+    blockchain_id: String,
+) -> Result<NamespaceOption, String> {
+    println!("Getting root currency for blockchain: {}", blockchain_id);
+    
+    // Load credentials
+    let creds = crate::credentials::load_credentials(app).await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    
+    // Get the currency name for this blockchain
+    let currency_name = get_currency_name_for_blockchain(&blockchain_id)
+        .ok_or_else(|| format!("Unsupported blockchain: {}", blockchain_id))?;
+    
+    println!("Calling getcurrency for: {}", currency_name);
+    
+    // Call getcurrency RPC method
+    let response: Value = make_rpc_call(
+        &creds.rpc_user,
+        &creds.rpc_pass,
+        creds.rpc_port,
+        "getcurrency",
+        vec![json!(currency_name)],
+    ).await
+        .map_err(|e| format!("Failed to call getcurrency: {}", e))?;
+    
+    println!("Got getcurrency response for {}", currency_name);
+    
+    // Parse the response
+    let root_currency: RootCurrencyResponse = serde_json::from_value::<RootCurrencyResponse>(response.clone())
+        .map_err(|e| {
+            println!("Failed to parse getcurrency response: {}", e);
+            println!("Response: {}", serde_json::to_string_pretty(&response).unwrap_or_else(|_| "Unable to serialize".to_string()));
+            format!("Failed to parse getcurrency response: {}", e)
+        })?;
+    
+    // Convert to NamespaceOption format
+    let namespace_option = NamespaceOption {
+        name: root_currency.name.clone(),
+        currency_id: root_currency.currencyid,
+        registration_fee: root_currency.idregistrationfees,
+        fully_qualified_name: root_currency.name.clone(),
+        fee_currency_name: root_currency.name.clone(), // Root currency fees are paid in itself
+        options: 41, // Assume root currencies support referral system
+        id_referral_levels: root_currency.idreferrallevels,
+    };
+    
+    println!("Root currency created: {} (fee: {} {})", 
+        namespace_option.name, 
+        namespace_option.registration_fee, 
+        namespace_option.fee_currency_name);
+    
+    Ok(namespace_option)
 }
 
 async fn resolve_namespace_fee_currency(
@@ -359,5 +458,7 @@ async fn resolve_namespace_fee_currency(
         registration_fee: def.idregistrationfees,
         fully_qualified_name: def.fullyqualifiedname.clone(),
         fee_currency_name,
+        options: def.options,
+        id_referral_levels: def.idreferrallevels,
     })
 } 

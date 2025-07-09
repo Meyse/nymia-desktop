@@ -28,6 +28,9 @@
     // Import Components
     import NoBlockchainFoundStep from './NoBlockchainFoundStep.svelte';
     
+    // Import Store
+    import { setSelectedBlockchain } from '$lib/stores/blockchain';
+    
     // Import Types
     import type { 
         ParallelDetectionResult, 
@@ -194,7 +197,15 @@
             // Don't block the flow, but log the error - credentials will still be passed via event
         }
 
-        // Dispatch selection event with credentials
+        // Update the blockchain store
+        setSelectedBlockchain({
+            id: blockchain.blockchain_id,
+            name: blockchain.blockchain_name,
+            credentials: blockchain.credentials,
+            blockHeight: blockchain.block_height
+        });
+
+        // Dispatch selection event with credentials (keep for compatibility)
         dispatch('blockchainSelected', {
             blockchainId: blockchain.blockchain_id,
             credentials: blockchain.credentials,

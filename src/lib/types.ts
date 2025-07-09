@@ -107,4 +107,6 @@ export interface NamespaceOption {
     registration_fee: number;
     fully_qualified_name: string;
     fee_currency_name: string; // NEW: The actual currency name for the registration fee (e.g. "VRSCTEST", "SECOND")
+    options: number; // NEW: Currency options (33 or 41) - needed for referral system
+    id_referral_levels: number; // NEW: Referral levels (0-5) - determines discount amount
 } 

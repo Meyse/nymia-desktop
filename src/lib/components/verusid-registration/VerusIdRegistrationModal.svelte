@@ -27,7 +27,9 @@
   let registrationData = {
     name: '',
     namespace: null as NamespaceOption | null,
-    isStep1Valid: false
+    isStep1Valid: false,
+    referralCode: '',
+    preview: ''
   };
 
   // Event dispatcher
@@ -35,8 +37,8 @@
 
   // Step labels - can be customized later
   const stepLabels = [
-    'Identity Info',
-    'Identity Details', 
+    'Name',
+    'Payment Details', 
     'Verification',
     'Payment',
     'Confirmation'
@@ -70,10 +72,12 @@
     }
   }
 
-  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean }>) {
+  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string }>) {
     registrationData.name = event.detail.name;
     registrationData.namespace = event.detail.namespace;
     registrationData.isStep1Valid = event.detail.isValid;
+    registrationData.referralCode = event.detail.referralCode;
+    registrationData.preview = event.detail.preview;
   }
 
   // Computed
@@ -194,7 +198,7 @@
           <div class="flex items-center justify-center h-full">
             <div class="text-center">
               <h3 class="text-lg font-medium text-dark-text-primary mb-2">
-                Identity Details
+                Payment Details
               </h3>
               <p class="text-dark-text-secondary">
                 Step 2 content will be implemented here.
@@ -246,7 +250,8 @@
       </div>
 
       <!-- Footer with navigation buttons -->
-      <div class="px-6 py-4 border-t border-dark-border-primary bg-[#0f0f11] flex justify-between">
+      <div class="px-6 py-4 border-t border-dark-border-primary bg-[#0f0f11] flex items-center justify-between">
+        <!-- Left side: Cancel button -->
         <Button
           variant="secondary"
           on:click={handleClose}
@@ -254,23 +259,36 @@
           Cancel
         </Button>
         
-        <div class="flex space-x-3">
-          {#if currentStep > 1}
-            <Button
-              variant="secondary"
-              on:click={handlePrevious}
-            >
-              Previous
-            </Button>
+        <!-- Center: Empty spacer -->
+        <div class="flex-1"></div>
+        
+        <!-- Right side: Preview + Navigation buttons -->
+        <div class="flex items-center space-x-4">
+          <!-- Name Preview -->
+          {#if registrationData.preview}
+            <span class="text-xs text-brand-green/80 font-medium">Creating:</span>
+            <span class="bg-black/60 border border-brand-green/30 rounded-lg px-[12px] py-[4px] text-sm text-white font-mono font-medium">{registrationData.preview}</span>
           {/if}
           
-          <Button
-            variant="primary"
-            disabled={!canProceed}
-            on:click={handleNext}
-          >
-            {currentStep === totalSteps ? 'Complete' : 'Next'}
-          </Button>
+          <!-- Navigation buttons -->
+          <div class="flex space-x-3">
+            {#if currentStep > 1}
+              <Button
+                variant="secondary"
+                on:click={handlePrevious}
+              >
+                Previous
+              </Button>
+            {/if}
+            
+            <Button
+              variant="primary"
+              disabled={!canProceed}
+              on:click={handleNext}
+            >
+              {currentStep === totalSteps ? 'Complete' : 'Next'}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
