@@ -14,7 +14,7 @@
   import { Loader2 } from 'lucide-svelte';
 
   // Props
-  export let variant: 'primary' | 'secondary' = 'primary';
+  export let variant: 'primary' | 'secondary' | 'white' = 'primary';
   export let disabled: boolean = false;
   export let loading: boolean = false;
   export let loadingText: string = 'Loading...';
@@ -36,7 +36,9 @@
     ${disabled || loading ? 'disabled:opacity-50 disabled:cursor-not-allowed' : ''}
     ${variant === 'primary' 
       ? 'btn-primary border border-transparent text-white bg-brand-green hover:bg-[#32905D]' 
-      : 'btn-secondary border border-white/20 text-dark-text-primary bg-transparent hover:border-white/40'
+      : variant === 'secondary'
+      ? 'btn-secondary border border-white/20 text-dark-text-primary bg-transparent hover:border-white/40'
+      : 'btn-white border border-transparent text-black bg-white hover:bg-gray-100'
     }
   `.trim();
 

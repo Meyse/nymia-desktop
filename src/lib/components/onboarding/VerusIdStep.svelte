@@ -301,20 +301,23 @@
             placeholder="-- Please choose an ID --"
             on:change={handleIdSelection} 
         />
-        
-        <!-- Get VerusID Button -->
-        <div class="mt-4 flex justify-center">
-            <Button
-                variant="secondary"
-                on:click={handleGetVerusId}
-            >
-                Get VerusID
-            </Button>
-        </div>
     {:else if fetchStatus === 'success' && loginIdentities.length === 0}
         <div class="mt-4 p-3 bg-yellow-900/40 border border-yellow-700/50 rounded-md text-center">
             <p class="text-sm font-medium text-yellow-300 select-none cursor-default">No Eligible IDs Found</p>
             <p class="text-xs text-yellow-400 select-none cursor-default">No VerusIDs with private addresses and required permissions were found in your wallet.</p>
+        </div>
+    {/if}
+
+    <!-- Get VerusID Button - Always shown when not in error state -->
+    {#if fetchStatus !== 'error'}
+        <div class="mt-4 flex justify-center">
+            <Button
+                variant="white"
+                on:click={handleGetVerusId}
+            >
+                <img slot="icon" src="/verusid-icon.svg" alt="VerusID" class="w-4 h-4" />
+                Get VerusID
+            </Button>
         </div>
     {/if}
 </div>

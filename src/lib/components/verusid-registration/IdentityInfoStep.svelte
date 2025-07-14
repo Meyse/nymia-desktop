@@ -18,6 +18,7 @@
   - Root selection creates name@ format (no parent namespace) instead of name.parent@
   - Compact design with minimal spacing and smaller components
   - Referral input expects complete ID (e.g., john.namespace@) with no preview
+  - Removed USD pricing status messages for cleaner UI
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
@@ -663,16 +664,7 @@
           </div>
         {/if}
         
-        <!-- USD pricing status -->
-        {#if !isVerusBlockchain}
-          <div class="text-xs text-white/50 italic mt-1">
-            USD pricing available for Verus blockchain
-          </div>
-        {:else if usdPriceError}
-          <div class="text-xs text-red-400 italic mt-1">
-            USD pricing temporarily unavailable
-          </div>
-        {/if}
+
       </div>
     </div>
   {/if}
