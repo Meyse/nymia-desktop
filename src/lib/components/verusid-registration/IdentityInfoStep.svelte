@@ -19,6 +19,8 @@
   - Compact design with minimal spacing and smaller components
   - Referral input expects complete ID (e.g., john.namespace@) with no preview
   - Removed USD pricing status messages for cleaner UI
+  - Added real-time VerusID name availability checking with debounce
+  - Added referral code validation with namespace matching and existence check
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
@@ -42,6 +44,14 @@
   let referralCode: string = '';
   let showReferralInput = false;
   
+  // Validation State
+  let nameAvailabilityStatus: 'unchecked' | 'checking' | 'available' | 'taken' | 'error' = 'unchecked';
+  let nameAvailabilityMessage: string | null = null;
+  let referralStatus: 'unchecked' | 'checking' | 'valid' | 'invalid' | 'error' = 'unchecked';
+  let referralMessage: string | null = null;
+  let debounceTimeout: number;
+
+
   // Root currency state
   let rootCurrency: NamespaceOption | null = null;
   let fetchingRootCurrency = false;
@@ -55,19 +65,22 @@
 
   // Event dispatcher
   const dispatch = createEventDispatcher<{
-    dataChange: { name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string };
+    dataChange: { name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; };
   }>();
 
   // Computed
   $: previewId = name && selectedNamespace ? 
     (isRootNamespace(selectedNamespace) ? `${name}@` : `${name}.${selectedNamespace.name}@`) : '';
   
-  $: isValid = name.trim().length > 0 && selectedNamespace !== null && isValidName(name);
+  $: isNameValid = isValidName(name);
+  $: isNameAvailable = nameAvailabilityStatus === 'available';
+  $: isReferralValid = referralStatus === 'valid' || (referralStatus === 'unchecked' && referralCode.trim() === '');
+  $: isValid = isNameValid && selectedNamespace !== null && isNameAvailable && isReferralValid;
   
   // Auto-dispatch when any relevant data changes
   $: if (typeof window !== 'undefined') {
     // List all dependencies explicitly to ensure reactivity
-    const deps = { name, selectedNamespace, isValid, referralCode: referralCode.trim(), previewId };
+    const deps = { name, selectedNamespace, isValid, referralCode: referralCode.trim(), previewId, isNameAvailable, isReferralValid };
     dispatchDataChange();
   }
 
@@ -79,6 +92,7 @@
     document.addEventListener('click', handleOutsideClick);
     return () => {
       document.removeEventListener('click', handleOutsideClick);
+      clearTimeout(debounceTimeout);
     };
   });
 
@@ -160,6 +174,14 @@
     }
     
     name = filteredValue;
+    // Reset status on new input, then trigger debounced check
+    nameAvailabilityStatus = 'unchecked';
+    nameAvailabilityMessage = null;
+    clearTimeout(debounceTimeout);
+    debounceTimeout = window.setTimeout(() => {
+      checkNameAvailability();
+    }, 500); // 500ms delay
+
     dispatchDataChange();
   }
 
@@ -171,6 +193,11 @@
     
     selectedNamespace = namespace;
     showDropdown = false;
+
+    // Re-validate name and referral against new namespace
+    checkNameAvailability();
+    resetReferralStatus();
+
     dispatchDataChange();
   }
 
@@ -196,7 +223,9 @@
       namespace: selectedNamespace,
       isValid,
       referralCode: referralCode.trim(),
-      preview: previewId
+      preview: previewId,
+      isNameAvailable,
+      isReferralValid
     });
   }
 
@@ -223,6 +252,7 @@
     showReferralInput = !showReferralInput;
     if (!showReferralInput) {
       referralCode = '';
+      resetReferralStatus();
     }
   }
 
@@ -231,6 +261,91 @@
     return namespace.currency_id === rootCurrency.currency_id || 
            (namespace.name.toLowerCase() === 'vrsc' || namespace.name.toLowerCase() === 'vrsctest');
   }
+
+  // --- Validation Functions ---
+
+  async function checkNameAvailability() {
+    if (!name.trim() || !selectedNamespace) {
+      nameAvailabilityStatus = 'unchecked';
+      nameAvailabilityMessage = null;
+      return;
+    }
+
+    nameAvailabilityStatus = 'checking';
+    nameAvailabilityMessage = null;
+
+    try {
+      const fullId = isRootNamespace(selectedNamespace) 
+        ? `${name}@` 
+        : `${name}.${selectedNamespace.name}@`;
+      
+      console.log(`Checking availability of: ${fullId}`);
+      
+      const exists = await invoke<boolean>('check_identity_exists', { identityName: fullId });
+
+      if (exists) {
+        nameAvailabilityStatus = 'taken';
+        nameAvailabilityMessage = 'This name is already taken in this namespace.';
+      } else {
+        nameAvailabilityStatus = 'available';
+        nameAvailabilityMessage = 'This name is available.';
+      }
+    } catch (error: any) {
+      console.error('Failed to check name availability:', error);
+      nameAvailabilityStatus = 'error';
+      nameAvailabilityMessage = `Error checking name: ${error.message || error}`;
+    }
+  }
+
+  async function validateReferral() {
+    if (!referralCode.trim() || !selectedNamespace) {
+      referralStatus = 'invalid';
+      referralMessage = 'Referral code cannot be empty.';
+      return;
+    }
+
+    referralStatus = 'checking';
+    referralMessage = null;
+
+    // 1. Namespace check
+    const referralParts = referralCode.split('.');
+    const referralName = referralParts[0];
+    const referralNamespaceAndAt = referralParts.length > 1 ? referralParts.slice(1).join('.') : '';
+    const referralNamespace = referralNamespaceAndAt.endsWith('@') ? referralNamespaceAndAt.slice(0, -1) : referralNamespaceAndAt;
+
+    const isRootSelected = isRootNamespace(selectedNamespace);
+
+    if ((isRootSelected && referralNamespace !== '') || (!isRootSelected && referralNamespace.toLowerCase() !== selectedNamespace.name.toLowerCase())) {
+        referralStatus = 'invalid';
+        referralMessage = `Referral must be in the selected ".${selectedNamespace.name}@" namespace.`;
+        return;
+    }
+
+    // 2. Existence check
+    try {
+      console.log(`Validating referral ID: ${referralCode}`);
+      const exists = await invoke<boolean>('check_identity_exists', { identityName: referralCode });
+      
+      if (exists) {
+        referralStatus = 'valid';
+        referralMessage = 'Referral code is valid.';
+      } else {
+        referralStatus = 'invalid';
+        referralMessage = 'This referral ID does not exist.';
+      }
+    } catch (error: any) {
+      console.error('Failed to validate referral:', error);
+      referralStatus = 'error';
+      referralMessage = `Error validating referral: ${error.message || error}`;
+    }
+  }
+
+  function resetReferralStatus() {
+    referralStatus = 'unchecked';
+    referralMessage = null;
+    referralCode = '';
+  }
+
 
   // USD Pricing Functions
   async function getVrscToUsdRate(): Promise<number | null> {
@@ -392,21 +507,44 @@
       <div class="flex gap-2">
         <!-- Name Input (left side) -->
         <div class="flex-1">
-          <input
-            bind:this={inputElement}
-            type="text"
-            bind:value={name}
-            on:input={handleNameInput}
-            placeholder="Enter name"
-            class="w-full bg-black/60 border border-white/20 hover:border-brand-green/60 focus:border-brand-green rounded-lg shadow-lg px-3 py-2.5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-brand-green/30"
-            maxlength="20"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-          />
-          <div class="text-xs text-white/50 mt-1 px-1">
-            Not case sensitive • All character sets supported
+          <div class="relative">
+            <input
+              bind:this={inputElement}
+              type="text"
+              bind:value={name}
+              on:input={handleNameInput}
+              placeholder="Enter name"
+              class="w-full bg-black/60 border hover:border-brand-green/60 focus:border-brand-green rounded-lg shadow-lg px-3 py-2.5 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-brand-green/30
+                {nameAvailabilityStatus === 'available' ? 'border-green-500/50' : ''}
+                {nameAvailabilityStatus === 'taken' || nameAvailabilityStatus === 'error' ? 'border-red-500/50' : 'border-white/20'}"
+              maxlength="20"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            />
+            <!-- Name availability icon -->
+            <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              {#if nameAvailabilityStatus === 'checking'}
+                <svg class="animate-spin h-4 w-4 text-white/60" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              {:else if nameAvailabilityStatus === 'available'}
+                <svg class="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                </svg>
+              {:else if nameAvailabilityStatus === 'taken' || nameAvailabilityStatus === 'error'}
+                <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                </svg>
+              {/if}
+            </div>
+          </div>
+          <div class="text-xs h-4 mt-1 px-1
+            {nameAvailabilityStatus === 'available' ? 'text-green-400/80' : ''}
+            {nameAvailabilityStatus === 'taken' || nameAvailabilityStatus === 'error' ? 'text-red-400/80' : 'text-white/50'}">
+            {nameAvailabilityMessage || 'Not case sensitive • All character sets supported'}
           </div>
         </div>
         
@@ -418,9 +556,27 @@
         <!-- Namespace Dropdown (right side) -->
         <div class="flex-1 relative" bind:this={dropdownElement}>
           {#if fetchingNamespaces}
-            <div class="w-full bg-black/60 border border-white/20 rounded-lg px-3 py-2.5 text-white/60">
-              Loading...
-            </div>
+            <button 
+              type="button"
+              class="relative w-full bg-black/60 border border-white/20 rounded-lg shadow-lg pl-3 pr-10 py-2.5 text-left cursor-default"
+              disabled
+            >
+              <span class="block truncate font-medium min-h-[1.25rem]">
+                <div class="h-5 bg-white/10 rounded animate-pulse w-24"></div>
+              </span>
+              
+              <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg 
+                  class="h-4 w-4 text-white/60"
+                  xmlns="http://www.w3.org/2000/svg" 
+                  viewBox="0 0 20 20" 
+                  fill="currentColor" 
+                  aria-hidden="true"
+                >
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </span>
+            </button>
           {:else if fetchError}
             <div class="w-full bg-red-900/40 border border-red-600/50 rounded-lg px-3 py-2.5 text-red-400 text-sm">
               Error loading
@@ -626,7 +782,7 @@
           </div>
           
           <!-- Referral Code Section -->
-          <div class="mt-2">
+          <div class="mt-2 pt-2 border-t border-white/5">
             {#if !showReferralInput}
               <button
                 type="button"
@@ -637,27 +793,55 @@
               </button>
             {:else}
               <div class="space-y-2">
-                <div class="flex gap-2 items-center">
-                  <input
-                    type="text"
-                    bind:value={referralCode}
-                    placeholder="name.namespace@"
-                    class="flex-1 bg-black/60 border border-white/20 hover:border-blue-400/60 focus:border-blue-400 rounded px-2 py-1 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-blue-400/30"
-                    autocomplete="off"
-                    autocorrect="off"
-                    autocapitalize="off"
-                    spellcheck="false"
-                  />
-                  <button
-                    type="button"
-                    on:click={toggleReferralInput}
-                    class="text-white/60 hover:text-white/80 p-1 hover:bg-white/5 rounded transition-colors"
-                    title="Cancel"
-                  >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                <label class="block text-xs font-medium text-white/70">Referral ID (optional)</label>
+                <div class="flex gap-2 items-start">
+                  <div class="flex-1">
+                    <div class="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        bind:value={referralCode}
+                        on:input={() => { referralStatus = 'unchecked'; referralMessage = null; }}
+                        placeholder="name.namespace@"
+                        class="flex-1 bg-black/60 border hover:border-blue-400/60 focus:border-blue-400 rounded px-2 py-1.5 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-blue-400/30
+                          {referralStatus === 'valid' ? 'border-green-500/50' : ''}
+                          {referralStatus === 'invalid' || referralStatus === 'error' ? 'border-red-500/50' : 'border-white/20'}"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        readonly={referralStatus === 'valid' || referralStatus === 'checking'}
+                      />
+
+                      {#if referralStatus === 'valid'}
+                        <button
+                          type="button"
+                          on:click={() => { referralCode = ''; referralStatus = 'unchecked'; referralMessage = null; }}
+                          class="bg-gray-700/50 hover:bg-gray-600/50 text-white/80 px-2.5 py-1.5 text-xs font-medium rounded transition-colors"
+                        >
+                          Clear
+                        </button>
+                      {:else}
+                        <Button
+                          variant="secondary"
+                          size="small"
+                          on:click={validateReferral}
+                          loading={referralStatus === 'checking'}
+                          disabled={!referralCode.trim() || !selectedNamespace}
+                        >
+                          Apply
+                        </Button>
+                      {/if}
+
+                    </div>
+                    {#if referralMessage}
+                      <p class="text-xs mt-1.5
+                        {referralStatus === 'valid' ? 'text-green-400/90' : ''}
+                        {referralStatus === 'invalid' || referralStatus === 'error' ? 'text-red-400/90' : 'text-white/60'}">
+                        {referralMessage}
+                      </p>
+                    {/if}
+                  </div>
+
                 </div>
               </div>
             {/if}

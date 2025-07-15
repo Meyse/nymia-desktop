@@ -198,6 +198,19 @@ async fn check_identity_eligibility(
         .map_err(CommandError::from) // Uses the updated From implementation
 }
 
+// NEW Command: Check if an identity exists
+#[tauri::command]
+async fn check_identity_exists(
+    app: tauri::AppHandle,
+    identity_name: String,
+) -> Result<bool, CommandError> {
+    log::info!("check_identity_exists command received for: {}", identity_name);
+    let creds = crate::credentials::load_credentials(app).await?;
+    crate::identity_rpc::check_identity_exists(creds.rpc_user, creds.rpc_pass, creds.rpc_port, identity_name)
+        .await
+        .map_err(CommandError::from)
+}
+
 // NEW Command: Get Chat History (with automatic signature verification)
 #[tauri::command]
 async fn get_chat_history(
@@ -337,6 +350,7 @@ pub fn run() {
             get_private_balance, // Add the new balance command
             get_pending_balance, // Add the new pending balance command
             check_identity_eligibility,
+            check_identity_exists, // NEW: For name/referral validation
             get_chat_history,
             get_new_received_messages,
             send_private_message, // Added send message command

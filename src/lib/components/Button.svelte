@@ -15,6 +15,7 @@
 
   // Props
   export let variant: 'primary' | 'secondary' | 'white' = 'primary';
+  export let size: 'normal' | 'small' = 'normal';
   export let disabled: boolean = false;
   export let loading: boolean = false;
   export let loadingText: string = 'Loading...';
@@ -29,10 +30,12 @@
 
   // Dynamic classes based on variant
   $: buttonClasses = `
-    py-2 px-3 rounded-md shadow-sm text-xs font-medium select-none 
+    rounded-md shadow-sm text-xs font-medium select-none 
     focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-green 
     flex items-center justify-center
     
+    ${size === 'normal' ? 'py-2 px-3' : 'py-1.5 px-2.5'}
+
     ${disabled || loading ? 'disabled:opacity-50 disabled:cursor-not-allowed' : ''}
     ${variant === 'primary' 
       ? 'btn-primary border border-transparent text-white bg-brand-green hover:bg-[#32905D]' 

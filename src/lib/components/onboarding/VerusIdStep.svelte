@@ -13,22 +13,25 @@
 // - Handles edge case where all identities get filtered out due to missing private keys
 // - Added "Get VerusID" button underneath dropdown to open registration modal
 // - Integrated VerusIdRegistrationModal for new VerusID creation flow
+// - Made "Get VerusID" button always visible immediately, regardless of fetch status
+// - Removed all credential checking logic since credentials are guaranteed by BlockchainDetectionStep
+// - Simplified error handling to focus on VerusID-specific issues only
 
     import { createEventDispatcher, onMount } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import CustomDropdown from '../CustomDropdown.svelte';
     import Button from '../Button.svelte';
     import VerusIdRegistrationModal from '../verusid-registration/VerusIdRegistrationModal.svelte';
+    import VerusIdInfoModal from './VerusIdInfoModal.svelte';
 
     // Import Shared Types
-    import type { Credentials, FormattedIdentity, DropdownOption } from '$lib/types';
+    import type { FormattedIdentity, DropdownOption } from '$lib/types';
 
     // --- Types --- (Removed local definitions)
     type FetchStatus = 'idle' | 'fetching' | 'success' | 'error';
     type BalanceLoadingStatus = 'loading' | 'loaded' | 'error';
 
     // --- Props ---
-    export let credentials: Credentials | null = null; // Needed to fetch IDs
     export let currencySymbol: string = 'VRSC'; // Currency symbol for balance display
 
     // --- State ---
@@ -40,6 +43,7 @@
     let balanceLoadingStatus: Map<string, BalanceLoadingStatus> = new Map(); // Track balance loading per identity
     let showingSkeleton = false;
     let showRegistrationModal = false;
+    let showVerusIdInfoModal = false;
 
     // --- Event Dispatcher ---
     const dispatch = createEventDispatcher<{
@@ -48,13 +52,8 @@
 
     // --- Lifecycle ---
     onMount(() => {
-        // Fetch identities immediately when component mounts if credentials provided
-        if (credentials) {
-            fetchIdentities();
-        } else {
-            fetchStatus = 'error';
-            fetchError = 'Credentials not provided. Cannot fetch identities.';
-        }
+        // Fetch identities immediately when component mounts (credentials guaranteed by BlockchainDetectionStep)
+        fetchIdentities();
     });
 
     // --- Logic ---
@@ -74,13 +73,6 @@
     }
 
     async function fetchIdentities() {
-        if (!credentials) { // Double check credentials exist
-             console.error("VerusIdStep: Credentials missing, cannot fetch.");
-             fetchStatus = 'error';
-             fetchError = 'Internal Error: Credentials missing.';
-             return;
-        }
-
         // Step 1: Show skeleton loading initially
         fetchStatus = 'fetching';
         fetchError = null;
@@ -152,10 +144,8 @@
                 errorMessage = String(error);
             }
             
-            // Check for specific credential-related errors and provide better messaging
-            if (errorMessage.includes('Credentials not found') || errorMessage.includes('NotFound')) {
-                fetchError = 'Connection to blockchain lost. Please go back and reconnect to your blockchain.';
-            } else if (errorMessage.includes('No eligible VerusIDs found') || errorMessage.includes('No VerusIDs with private addresses found')) {
+            // Handle VerusID-specific errors
+            if (errorMessage.includes('No eligible VerusIDs found') || errorMessage.includes('No VerusIDs with private addresses found')) {
                 fetchError = 'No eligible VerusIDs found. Identities must have private addresses and spending/signing permissions.';
             } else {
                 fetchError = `Unable to load identities: ${errorMessage}`;
@@ -258,68 +248,91 @@
         showRegistrationModal = false;
     }
 
+    function handleShowVerusIdInfo() {
+        showVerusIdInfoModal = true;
+    }
+
+    function handleCloseVerusIdInfoModal() {
+        showVerusIdInfoModal = false;
+    }
+
 </script>
 
 <div class="step-content-area">
-    <h1 class="text-2xl font-semibold text-dark-text-primary mb-2 select-none cursor-default">Select VerusID</h1>
-    <p class="text-dark-text-secondary text-normal mb-1 select-none cursor-default">Choose the VerusID you want to log in with.</p>
-    
-    <div class="flex items-center bg-blue-900/30 border-blue-700/50 rounded-md px-3 py-2 mb-6 border-l-2">
-        <svg class="w-4 h-4 text-blue-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-        </svg>
-        <span class="text-xs text-blue-300 select-none cursor-default">Only identities with private addresses work with Nymia</span>
-    </div>
+    <div class="flex flex-col h-full">
+        <!-- Main Content Area (will grow to fill space) -->
+        <div class="flex-grow">
+            <h1 class="text-2xl font-semibold text-dark-text-primary mb-2 select-none cursor-default">Select VerusID</h1>
+            <p class="text-dark-text-secondary text-normal mb-1 select-none cursor-default">Choose the VerusID you want to log in with.</p>
+            
+            <div class="flex items-center bg-blue-900/30 border-blue-700/50 rounded-md px-3 py-2 mb-6 border-l-2">
+                <svg class="w-4 h-4 text-blue-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                </svg>
+                <span class="text-xs text-blue-300 select-none cursor-default">Only identities with private addresses work with Nymia</span>
+            </div>
 
-    {#if fetchStatus === 'error' && fetchError}
-        <div class="mt-4 p-3 bg-red-900/40 border border-red-700/50 rounded-md text-center">
-            <p class="text-sm font-medium text-red-300 select-none cursor-default">Error Loading Identities</p>
-            <p class="text-xs text-red-400 select-none cursor-default">{fetchError}</p>
-            {#if fetchError.includes('Connection to blockchain lost')}
-                <button
-                    type="button"
-                    on:click={() => {
-                        // Retry fetching identities
-                        if (credentials) {
+            {#if fetchStatus === 'error' && fetchError}
+                <div class="mt-4 p-3 bg-red-900/40 border border-red-700/50 rounded-md text-center">
+                    <p class="text-sm font-medium text-red-300 select-none cursor-default">Error Loading Identities</p>
+                    <p class="text-xs text-red-400 select-none cursor-default">{fetchError}</p>
+                    <button
+                        type="button"
+                        on:click={() => {
+                            // Retry fetching identities
                             fetchIdentities();
-                        }
-                    }}
-                    class="mt-3 inline-flex items-center px-3 py-1 border border-red-600/50 rounded text-xs font-medium text-red-200 bg-red-800/30 hover:bg-red-700/40 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-150"
-                >
-                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                    </svg>
-                    Retry
-                </button>
+                        }}
+                        class="mt-3 inline-flex items-center px-3 py-1 border border-red-600/50 rounded text-xs font-medium text-red-200 bg-red-800/30 hover:bg-red-700/40 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-150"
+                    >
+                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        Retry
+                    </button>
+                </div>
+            {:else if fetchStatus === 'fetching' || (fetchStatus === 'success' && loginIdentities.length > 0)}
+                <CustomDropdown
+                    label="Select Identity"
+                    options={loginIdentityOptions}
+                    bind:selectedId={selectedIdentityIAddress}
+                    placeholder="-- Please choose an ID --"
+                    on:change={handleIdSelection} 
+                />
+            {:else if fetchStatus === 'success' && loginIdentities.length === 0}
+                <div class="mt-4 p-3 bg-yellow-900/40 border border-yellow-700/50 rounded-md text-center">
+                    <p class="text-sm font-medium text-yellow-300 select-none cursor-default">No Eligible IDs Found</p>
+                    <p class="text-xs text-yellow-400 select-none cursor-default">No VerusIDs with private addresses and required permissions were found in your wallet.</p>
+                </div>
             {/if}
         </div>
-    {:else if fetchStatus === 'fetching' || (fetchStatus === 'success' && loginIdentities.length > 0)}
-        <CustomDropdown
-            label="Select Identity"
-            options={loginIdentityOptions}
-            bind:selectedId={selectedIdentityIAddress}
-            placeholder="-- Please choose an ID --"
-            on:change={handleIdSelection} 
-        />
-    {:else if fetchStatus === 'success' && loginIdentities.length === 0}
-        <div class="mt-4 p-3 bg-yellow-900/40 border border-yellow-700/50 rounded-md text-center">
-            <p class="text-sm font-medium text-yellow-300 select-none cursor-default">No Eligible IDs Found</p>
-            <p class="text-xs text-yellow-400 select-none cursor-default">No VerusIDs with private addresses and required permissions were found in your wallet.</p>
-        </div>
-    {/if}
 
-    <!-- Get VerusID Button - Always shown when not in error state -->
-    {#if fetchStatus !== 'error'}
-        <div class="mt-4 flex justify-center">
-            <Button
-                variant="white"
-                on:click={handleGetVerusId}
-            >
-                <img slot="icon" src="/verusid-icon.svg" alt="VerusID" class="w-4 h-4" />
-                Get VerusID
-            </Button>
+        <!-- Footer Area (pushed to bottom) -->
+        <div class="flex-shrink-0">
+            <!-- Get VerusID Section - Positioned under dropdown, above footer icons -->
+            <div class="mt-8 pt-6 border-t border-white/10">
+                <div class="space-y-3">
+                    <div class="flex justify-start">
+                        <Button
+                            variant="white"
+                            on:click={handleGetVerusId}
+                        >
+                            <img slot="icon" src="/verusid-icon.svg" alt="VerusID" class="w-4 h-4" />
+                            Get VerusID
+                        </Button>
+                    </div>
+                    <p class="text-sm text-white/55 select-none cursor-default">
+                        New to VerusID? 
+                        <button 
+                            class="text-white/85 hover:text-white/95 cursor-pointer transition-colors duration-150"
+                            on:click={handleShowVerusIdInfo}
+                        >
+                            Learn what it is.
+                        </button>
+                    </p>
+                </div>
+            </div>
         </div>
-    {/if}
+    </div>
 </div>
 
 <!-- VerusID Registration Modal -->
@@ -328,9 +341,16 @@
     on:close={handleCloseRegistrationModal}
 />
 
+<!-- VerusID Info Modal -->
+{#if showVerusIdInfoModal}
+    <VerusIdInfoModal 
+        on:close={handleCloseVerusIdInfoModal}
+    />
+{/if}
+
 <style>
  .step-content-area {
-        /* Add any specific styles for this step if needed */
-         width: 100%;
+        width: 100%;
+        height: 100%;
     }
 </style> 

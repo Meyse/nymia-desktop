@@ -24,6 +24,7 @@
 // - Added responsibility disclosure with "I Understand" button
 // - Added currency symbol support - passes blockchain-specific ticker to VerusID step for balance display
 // - Fixed dual scrollbar issue: only blockchain step allows outer scrolling, other steps use fixed layout
+// - Removed obsolete 'credentials' prop from VerusIdStep, as credentials are now handled by the backend.
 
   import { createEventDispatcher } from 'svelte';
   import { slide } from 'svelte/transition';
@@ -268,7 +269,6 @@
               {:else if currentStep === 'verusid'}
                  <div transition:slide|local={{ duration: 300, easing: quintOut }}>
                      <VerusIdStep 
-                        credentials={currentCredentials}
                         currencySymbol={currencySymbol}
                         on:idSelected={handleIdSelected}
                      />

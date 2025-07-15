@@ -9,6 +9,8 @@
   - Clean divider between sidebar and content area
   - Step indicators show current/complete states with visual feedback
   - Updated to use reusable Button component for consistent styling
+  - Removed close icon from header and disabled backdrop/escape key closing
+  - Modal can only be closed via the Cancel button for better user flow control
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
@@ -29,7 +31,9 @@
     namespace: null as NamespaceOption | null,
     isStep1Valid: false,
     referralCode: '',
-    preview: ''
+    preview: '',
+    isNameAvailable: false,
+    isReferralValid: false,
   };
 
   // Event dispatcher
@@ -48,17 +52,9 @@
     dispatch('close');
   }
 
-  function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      handleClose();
-    }
-  }
+  // Removed backdrop click handler - modal can only be closed via Cancel button
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      handleClose();
-    }
-  }
+  // Removed escape key handler - modal can only be closed via Cancel button
 
   function handleNext() {
     if (currentStep < totalSteps) {
@@ -72,23 +68,23 @@
     }
   }
 
-  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string }>) {
+  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; }>) {
     registrationData.name = event.detail.name;
     registrationData.namespace = event.detail.namespace;
     registrationData.isStep1Valid = event.detail.isValid;
     registrationData.referralCode = event.detail.referralCode;
     registrationData.preview = event.detail.preview;
+    registrationData.isNameAvailable = event.detail.isNameAvailable;
+    registrationData.isReferralValid = event.detail.isReferralValid;
   }
 
   // Computed
   $: canProceed = currentStep === 1 ? registrationData.isStep1Valid : true; // Add more step validations later
 
-  // Add window keydown listener
+  // Manage body scroll when modal is shown
   $: if (show) {
-    window.addEventListener('keydown', handleKeydown);
     document.body.style.overflow = 'hidden';
   } else {
-    window.removeEventListener('keydown', handleKeydown);
     document.body.style.overflow = '';
   }
 </script>
@@ -97,7 +93,6 @@
   <div 
     class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm p-4"
     transition:fade={{ duration: 200 }}
-    on:click={handleBackdropClick}
   >
     <!-- Large Modal Content -->
     <div 
@@ -109,20 +104,11 @@
       aria-modal="true"
       aria-labelledby="verusid-registration-title"
     >
-      <!-- Header with Close Button -->
-      <div class="flex items-center justify-between p-4 border-b border-dark-border-primary bg-[#0f0f11]">
+      <!-- Header without Close Button -->
+      <div class="flex items-center p-4 border-b border-dark-border-primary bg-[#0f0f11]">
         <h2 id="verusid-registration-title" class="text-xl font-semibold text-dark-text-primary">
           Create New VerusID
         </h2>
-        <button
-          on:click={handleClose}
-          class="text-dark-text-secondary hover:text-dark-text-primary transition-colors duration-150 p-1"
-          aria-label="Close modal"
-        >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
       </div>
 
       <!-- Main Layout: Sidebar + Content -->

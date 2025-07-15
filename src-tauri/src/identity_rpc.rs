@@ -301,4 +301,50 @@ pub async fn check_identity_eligibility(
             }
         }
     }
+}
+
+// NEW: Check if a VerusID exists (for name availability and referral validation)
+pub async fn check_identity_exists(
+    rpc_user: String,
+    rpc_pass: String,
+    rpc_port: u16,
+    identity_name: String,
+) -> Result<bool, VerusRpcError> {
+    log::info!("Checking existence of identity: {}", identity_name);
+
+    // Basic format check to avoid unnecessary RPC calls
+    if !identity_name.ends_with('@') || identity_name.len() <= 1 {
+        log::warn!("Invalid identity format for existence check: {}", identity_name);
+        // We can treat this as "not existing" for validation purposes
+        return Ok(false);
+    }
+
+    match make_rpc_call::<Value>(&rpc_user, &rpc_pass, rpc_port, "getidentity", vec![json!(identity_name)]).await {
+        Ok(_) => {
+            // If we get any successful result, the identity exists.
+            log::info!("Identity '{}' exists.", identity_name);
+            Ok(true)
+        }
+        Err(e) => {
+            // Handle the specific "Not Found" error, which is a success case for name availability checks.
+            match e {
+                VerusRpcError::Rpc { code, ref message } if code == -5 || code == -8 => {
+                    // Code -5: Invalid address or key (Identity not found)
+                    // Code -8: Invalid parameter (Could also indicate identity not found)
+                    log::info!("Identity '{}' does not exist (RPC code {}): {}", identity_name, code, message);
+                    Ok(false)
+                },
+                VerusRpcError::ParseError(ref msg) if msg.contains("500 Internal Server Error") => {
+                     // Treat 500 error specifically for getidentity as likely not found
+                    log::warn!("getidentity received 500 error for '{}', treating as non-existent: {}", identity_name, msg);
+                    Ok(false)
+                }
+                _ => {
+                    // Propagate other errors (network, timeout, different RPC errors, etc.)
+                    log::error!("RPC call failed while checking existence for '{}': {:?}", identity_name, e);
+                    Err(e)
+                }
+            }
+        }
+    }
 } 
