@@ -462,3 +462,39 @@ async fn resolve_namespace_fee_currency(
         id_referral_levels: def.idreferrallevels,
     })
 } 
+
+// Tauri command to get currency details including reserves
+#[tauri::command]
+pub async fn get_currency(
+    app: tauri::AppHandle,
+    currencyname: String,
+) -> Result<GetCurrencyResponse, String> {
+    println!("Getting currency details for: {}", currencyname);
+    
+    // Load credentials
+    let creds = crate::credentials::load_credentials(app).await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    
+    // Call getcurrency RPC method
+    let response: Value = make_rpc_call(
+        &creds.rpc_user,
+        &creds.rpc_pass,
+        creds.rpc_port,
+        "getcurrency",
+        vec![json!(currencyname)],
+    ).await
+        .map_err(|e| format!("Failed to call getcurrency: {}", e))?;
+    
+    println!("Got getcurrency response for {}", currencyname);
+    
+    // Parse the response
+    let currency_details: GetCurrencyResponse = serde_json::from_value::<GetCurrencyResponse>(response.clone())
+        .map_err(|e| {
+            println!("Failed to parse getcurrency response: {}", e);
+            println!("Response: {}", serde_json::to_string_pretty(&response).unwrap_or_else(|_| "Unable to serialize".to_string()));
+            format!("Failed to parse getcurrency response: {}", e)
+        })?;
+    
+    println!("Successfully parsed currency details for {}", currencyname);
+    Ok(currency_details)
+} 

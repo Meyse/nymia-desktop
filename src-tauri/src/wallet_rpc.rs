@@ -6,6 +6,7 @@
 // - Added UtxoInfo struct and get_utxo_info function for Fast Messages feature
 // - Implemented z_listunspent RPC call with UTXO filtering and processing
 // - Added EstimateConversionRequest/Response structures and estimate_conversion function for USD pricing
+// - Added get_wallet_info function and command to get wallet balances and reserve balances
 
 use serde_json::{json, Value};
 use super::rpc_client::{make_rpc_call, VerusRpcError};
@@ -37,6 +38,15 @@ pub struct EstimateConversionResponse {
     #[serde(rename = "estimatedcurrencyout")]
     pub estimated_currency_out: f64,
     // We can add other fields later if needed
+}
+
+// Wallet info structure for payment details step
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WalletInfo {
+    pub balance: f64,
+    pub unconfirmed_balance: f64,
+    pub reserve_balance: std::collections::HashMap<String, f64>,
+    pub paytxfee: f64,
 }
 
 // Function to connect and get block height
@@ -199,6 +209,65 @@ pub async fn estimate_conversion(
     Ok(estimated_out)
 }
 
+// NEW function to get wallet info including balances and reserves
+pub async fn fetch_wallet_info(
+    rpc_user: String,
+    rpc_pass: String,
+    rpc_port: u16,
+) -> Result<WalletInfo, VerusRpcError> {
+    log::info!("Fetching wallet info including balances and reserves...");
+    
+    // Call getwalletinfo RPC method
+    let response: Value = make_rpc_call(
+        &rpc_user,
+        &rpc_pass,
+        rpc_port,
+        "getwalletinfo",
+        vec![],
+    ).await?;
+
+    log::debug!("Raw getwalletinfo response: {:?}", response);
+
+    // Extract required fields from the response
+    let balance = response["balance"]
+        .as_f64()
+        .unwrap_or(0.0);
+    
+    let unconfirmed_balance = response["unconfirmed_balance"]
+        .as_f64()
+        .unwrap_or(0.0);
+    
+    let paytxfee = response["paytxfee"]
+        .as_f64()
+        .unwrap_or(0.0001); // Default fee if not specified
+    
+    // Extract reserve balances
+    let mut reserve_balance = std::collections::HashMap::new();
+    if let Some(reserves) = response["reserve_balance"].as_object() {
+        for (currency, amount) in reserves {
+            if let Some(amount_f64) = amount.as_f64() {
+                reserve_balance.insert(currency.clone(), amount_f64);
+            }
+        }
+    }
+
+    let wallet_info = WalletInfo {
+        balance,
+        unconfirmed_balance,
+        reserve_balance,
+        paytxfee,
+    };
+
+    log::info!(
+        "Wallet info fetched: balance={:.8}, reserves={}, paytxfee={:.8}",
+        wallet_info.balance,
+        wallet_info.reserve_balance.len(),
+        wallet_info.paytxfee
+    );
+
+    Ok(wallet_info)
+}
+
 // Tauri command wrapper for estimate_conversion
 #[tauri::command]
 pub async fn estimate_currency_conversion(
@@ -222,4 +291,18 @@ pub async fn estimate_currency_conversion(
     estimate_conversion(creds.rpc_user, creds.rpc_pass, creds.rpc_port, request)
         .await
         .map_err(|e| format!("Conversion estimate failed: {}", e))
+} 
+
+// Tauri command wrapper for get_wallet_info
+#[tauri::command]
+pub async fn get_wallet_info(
+    app: tauri::AppHandle,
+) -> Result<WalletInfo, String> {
+    // Load credentials
+    let creds = crate::credentials::load_credentials(app).await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    fetch_wallet_info(creds.rpc_user, creds.rpc_pass, creds.rpc_port)
+        .await
+        .map_err(|e| format!("Failed to get wallet info: {}", e))
 } 

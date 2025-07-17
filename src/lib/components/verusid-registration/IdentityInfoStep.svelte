@@ -65,7 +65,7 @@
 
   // Event dispatcher
   const dispatch = createEventDispatcher<{
-    dataChange: { name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; };
+    dataChange: { name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; usdEstimate: number | null };
   }>();
 
   // Computed
@@ -218,6 +218,13 @@
   }
 
   function dispatchDataChange() {
+    let finalUsdPrice: number | null = null;
+    if (selectedNamespace) {
+      finalUsdPrice = isReferralValid && referralCode.trim() !== '' ? 
+        getDiscountedUsdPrice(selectedNamespace) : 
+        getNamespaceUsdPrice(selectedNamespace);
+    }
+
     dispatch('dataChange', {
       name: name,
       namespace: selectedNamespace,
@@ -225,7 +232,8 @@
       referralCode: referralCode.trim(),
       preview: previewId,
       isNameAvailable,
-      isReferralValid
+      isReferralValid,
+      usdEstimate: finalUsdPrice
     });
   }
 

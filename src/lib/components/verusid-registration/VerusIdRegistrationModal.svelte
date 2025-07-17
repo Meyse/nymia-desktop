@@ -11,6 +11,7 @@
   - Updated to use reusable Button component for consistent styling
   - Removed close icon from header and disabled backdrop/escape key closing
   - Modal can only be closed via the Cancel button for better user flow control
+  - Updated VerusID name preview to look less button-like with subtle styling
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
@@ -18,6 +19,7 @@
   import { quintOut } from 'svelte/easing';
   import Button from '../Button.svelte';
   import IdentityInfoStep from './IdentityInfoStep.svelte';
+  import PaymentDetailsStep from './PaymentDetailsStep.svelte';
   import type { NamespaceOption } from '$lib/types';
 
   // Props
@@ -34,6 +36,10 @@
     preview: '',
     isNameAvailable: false,
     isReferralValid: false,
+    usdEstimate: null as number | null, // To hold the USD price from step 1
+    // Step 2 data
+    selectedPaymentOption: null as any,
+    isStep2Valid: false,
   };
 
   // Event dispatcher
@@ -68,7 +74,7 @@
     }
   }
 
-  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; }>) {
+  function handleStep1DataChange(event: CustomEvent<{ name: string; namespace: NamespaceOption | null; isValid: boolean; referralCode: string; preview: string; isNameAvailable: boolean; isReferralValid: boolean; usdEstimate: number | null; }>) {
     registrationData.name = event.detail.name;
     registrationData.namespace = event.detail.namespace;
     registrationData.isStep1Valid = event.detail.isValid;
@@ -76,10 +82,37 @@
     registrationData.preview = event.detail.preview;
     registrationData.isNameAvailable = event.detail.isNameAvailable;
     registrationData.isReferralValid = event.detail.isReferralValid;
+    registrationData.usdEstimate = event.detail.usdEstimate;
+  }
+
+  function handleStep2DataChange(event: CustomEvent<{ selectedPaymentOption: any; isValid: boolean; }>) {
+    registrationData.selectedPaymentOption = event.detail.selectedPaymentOption;
+    registrationData.isStep2Valid = event.detail.isValid;
   }
 
   // Computed
-  $: canProceed = currentStep === 1 ? registrationData.isStep1Valid : true; // Add more step validations later
+  $: canProceed = currentStep === 1 ? registrationData.isStep1Valid : 
+                  currentStep === 2 ? registrationData.isStep2Valid : 
+                  true; // Add more step validations later
+
+  // Compute final price and other data for step 2
+  $: finalPrice = registrationData.namespace && registrationData.isReferralValid && registrationData.referralCode ? 
+    calculateDiscountedPrice(registrationData.namespace.registration_fee, registrationData.namespace.id_referral_levels) :
+    registrationData.namespace?.registration_fee || 0;
+
+  $: isReferralApplied = registrationData.isReferralValid && registrationData.referralCode.trim() !== '';
+
+  $: referralDiscount = registrationData.namespace ? calculateReferralDiscount(registrationData.namespace.id_referral_levels) : 0;
+
+  function calculateReferralDiscount(referralLevels: number): number {
+    // referralLevels 0-5 maps to 1/2, 1/3, 1/4, 1/5, 1/6, 1/7
+    return 1 / (referralLevels + 2);
+  }
+
+  function calculateDiscountedPrice(originalPrice: number, referralLevels: number): number {
+    const discount = calculateReferralDiscount(referralLevels);
+    return originalPrice * (1 - discount);
+  }
 
   // Manage body scroll when modal is shown
   $: if (show) {
@@ -179,18 +212,16 @@
             bind:selectedNamespace={registrationData.namespace}
             on:dataChange={handleStep1DataChange}
           />
-        {:else if currentStep === 2}
-          <!-- Placeholder for step 2 -->
-          <div class="flex items-center justify-center h-full">
-            <div class="text-center">
-              <h3 class="text-lg font-medium text-dark-text-primary mb-2">
-                Payment Details
-              </h3>
-              <p class="text-dark-text-secondary">
-                Step 2 content will be implemented here.
-              </p>
-            </div>
-          </div>
+        {:else if currentStep === 2 && registrationData.namespace}
+          <PaymentDetailsStep
+            selectedNamespace={registrationData.namespace}
+            finalPrice={finalPrice}
+            isReferralApplied={isReferralApplied}
+            referralDiscount={referralDiscount}
+            previewId={registrationData.preview}
+            usdEstimate={registrationData.usdEstimate}
+            on:dataChange={handleStep2DataChange}
+          />
         {:else if currentStep === 3}
           <!-- Placeholder for step 3 -->
           <div class="flex items-center justify-center h-full">
@@ -252,8 +283,12 @@
         <div class="flex items-center space-x-4">
           <!-- Name Preview -->
           {#if registrationData.preview}
-            <span class="text-xs text-white/55 font-medium">Creating:</span>
-            <span class="bg-black/60 border border-brand-green/30 rounded-lg px-[12px] py-[4px] text-base text-white font-bold">{registrationData.preview}</span>
+            <div class="flex items-center space-x-2 text-xs text-white/70">
+              <span class="font-medium">Creating:</span>
+              <span class="bg-white/5 border border-white/10 rounded px-2 py-1 text-white font-mono text-sm tracking-wide">
+                {registrationData.preview}
+              </span>
+            </div>
           {/if}
           
           <!-- Navigation buttons -->

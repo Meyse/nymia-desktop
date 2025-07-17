@@ -35,7 +35,7 @@ use crate::credentials::CredentialError; // Import credential error
 use crate::settings::SettingsError; // Import settings error
 use crate::identity_rpc::FormattedIdentity; // Corrected
 use crate::message_rpc::ChatMessage; // Corrected
-use crate::wallet_rpc::UtxoInfo; // Import UtxoInfo struct
+use crate::wallet_rpc::{UtxoInfo, WalletInfo}; // Import UtxoInfo and WalletInfo structs
 
 // Custom error type serializable for Tauri
 #[derive(Debug, serde::Serialize, thiserror::Error)]
@@ -366,6 +366,9 @@ pub fn run() {
             // Namespace commands
             crate::namespace_rpc::get_available_namespaces,
             crate::namespace_rpc::get_root_currency,
+            crate::namespace_rpc::get_currency,
+            // Wallet commands
+            crate::wallet_rpc::get_wallet_info,
             // Currency conversion commands
             crate::wallet_rpc::estimate_currency_conversion
         ])
