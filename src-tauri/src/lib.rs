@@ -30,12 +30,12 @@ pub mod message_rpc;
 pub mod wallet_rpc;
 pub mod namespace_rpc;
 
-use crate::rpc_client::VerusRpcError; // Corrected
+// use crate::rpc_client::VerusRpcError; // Corrected (unused)
 use crate::credentials::CredentialError; // Import credential error
 use crate::settings::SettingsError; // Import settings error
 use crate::identity_rpc::FormattedIdentity; // Corrected
 use crate::message_rpc::ChatMessage; // Corrected
-use crate::wallet_rpc::{UtxoInfo, WalletInfo}; // Import UtxoInfo and WalletInfo structs
+use crate::wallet_rpc::UtxoInfo; // Import UtxoInfo
 
 // Custom error type serializable for Tauri
 #[derive(Debug, serde::Serialize, thiserror::Error)]
@@ -367,10 +367,28 @@ pub fn run() {
             crate::namespace_rpc::get_available_namespaces,
             crate::namespace_rpc::get_root_currency,
             crate::namespace_rpc::get_currency,
+            // Identity registration commands
+            crate::identity_rpc::get_new_address,
+            crate::identity_rpc::get_new_private_address,
+            crate::identity_rpc::register_name_commitment,
+            crate::identity_rpc::register_identity,
+            crate::identity_rpc::get_transaction_confirmations,
+            crate::identity_rpc::wait_for_confirmations,
+            crate::identity_rpc::get_identity,
+            crate::identity_rpc::check_identity_ready,
+            crate::identity_rpc::wait_for_identity_ready,
+            crate::identity_rpc::dump_privkey,
+            crate::identity_rpc::export_z_key,
             // Wallet commands
             crate::wallet_rpc::get_wallet_info,
             // Currency conversion commands
-            crate::wallet_rpc::estimate_currency_conversion
+            crate::wallet_rpc::estimate_currency_conversion,
+            crate::wallet_rpc::get_wallet_addresses, // NEW
+            crate::wallet_rpc::get_address_currency_balances, // NEW
+            crate::wallet_rpc::get_address_currency_balance, // NEW - single currency balance
+            crate::wallet_rpc::send_currency_conversion, // NEW
+            crate::wallet_rpc::get_current_block_height // NEW
+            ,crate::wallet_rpc::wait_for_block_increase // NEW
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

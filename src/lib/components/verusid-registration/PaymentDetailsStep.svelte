@@ -12,6 +12,7 @@
   - Updated compact purchase summary design to save space
   - Enhanced payment method visual hierarchy with better contrast and shadows
   - Improved payment option cards with subtle backgrounds and hover effects
+  - Fixed double-click issue by calculating isValid directly in dispatchDataChange
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
@@ -73,9 +74,13 @@
 
   // Functions
   function dispatchDataChange() {
+    // Calculate isValid directly instead of relying on reactive variable
+    // to avoid timing issues with reactive statements
+    const calculatedIsValid = selectedPaymentOption !== null && selectedPaymentOption.isAffordable;
+    
     dispatch('dataChange', {
       selectedPaymentOption,
-      isValid
+      isValid: calculatedIsValid
     });
   }
 

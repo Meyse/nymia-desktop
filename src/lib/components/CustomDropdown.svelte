@@ -9,6 +9,9 @@
 // - Redesigned with cleaner, more modern dark styling (black/transparent backgrounds, white text)
 // - Improved visual hierarchy with better contrast and subtle borders
 // - Enhanced selected state with brand-green accent styling
+// - Added support for displaying balance in the closed state (selectedOptionBalance prop)
+// - UPDATED: Added useMonoFont prop to apply monospace font to option names (useful for addresses)
+// - UPDATED: Added per-option font control (useMonoFont per option), removed checkmarks, made text smaller
 
   import { createEventDispatcher, tick } from 'svelte';
   import { fly, scale } from 'svelte/transition';
@@ -19,6 +22,7 @@
     name: string;
     enabled: boolean;
     balance?: string | null; // Optional balance display
+    useMonoFont?: boolean; // NEW: Per-option mono font control
   }
 
   export let options: Option[] = [];
@@ -26,6 +30,8 @@
   export let label: string = '';
   export let placeholder: string = '-- Select --';
   export let disabled: boolean = false;
+  export let selectedOptionBalance: string | null = null; // NEW: To show balance when closed
+  export let useMonoFont: boolean = false; // NEW: Use mono font for names (useful for addresses)
 
   let isOpen = false;
   let selectedOptionName: string = placeholder;
@@ -81,11 +87,19 @@
     aria-expanded={isOpen}
     {disabled}
   >
-    <span 
-      class="block truncate font-medium {selectedId !== null ? 'text-white' : 'text-white/40'}"
-    >
-      {selectedOptionName}
-    </span>
+    <div class="flex items-center justify-between">
+      <span 
+        class="block truncate text-sm font-medium {selectedId !== null ? 'text-white' : 'text-white/40'} {useMonoFont ? 'font-mono' : ''}"
+      >
+        {selectedOptionName}
+      </span>
+
+      {#if selectedOptionBalance && selectedId !== null}
+        <span class="text-xs text-white/60 font-mono pr-8">
+          {selectedOptionBalance}
+        </span>
+      {/if}
+    </div>
     
     <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
       <svg 
@@ -106,7 +120,7 @@
       transition:fly={{ y: -4, duration: 150, easing: cubicOut }}
     >
       <ul 
-        class="bg-black/95 border border-white/10 shadow-2xl max-h-60 rounded-lg py-1 text-sm overflow-auto focus:outline-none backdrop-blur-sm"
+        class="bg-black/95 border border-white/10 shadow-2xl max-h-60 rounded-lg py-1 text-xs overflow-auto focus:outline-none backdrop-blur-sm"
         tabindex="-1"
         role="listbox"
         aria-labelledby="listbox-label"
@@ -126,7 +140,7 @@
             tabindex="0"
           >
             <div class="flex items-center justify-between">
-              <span class="block truncate">
+              <span class="block truncate {option.useMonoFont ? 'font-mono' : ''}">
                 {#if option.name === 'Loading...'}
                   <div class="w-24 h-4 bg-white/10 rounded animate-pulse"></div>
                 {:else}
@@ -134,7 +148,7 @@
                 {/if}
               </span>
               
-              <div class="flex items-center space-x-2 ml-2 flex-shrink-0">
+              <div class="flex items-center ml-2 flex-shrink-0">
                 {#if option.balance !== undefined}
                   <span class="text-xs text-white/60 font-mono {option.id === selectedId ? 'text-brand-green/80' : ''}">
                     {#if option.balance === 'skeleton'}
@@ -142,18 +156,6 @@
                     {:else}
                       {option.balance || '-'}
                     {/if}
-                  </span>
-                {/if}
-                
-                {#if !option.enabled}
-                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-900/40 text-yellow-300">
-                    Soon
-                  </span>
-                {:else if option.id === selectedId}
-                  <span class="text-brand-green">
-                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                    </svg>
                   </span>
                 {/if}
               </div>

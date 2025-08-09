@@ -5,11 +5,22 @@
 // - Added get_login_identities_fast for immediate name loading
 // - Updated get_login_identities to maintain compatibility
 // - Added get_identity_balance for individual balance fetching
+// - NEW: Added VerusID registration helpers and Tauri commands:
+//   - get_new_address (getnewaddress)
+//   - get_new_private_address (z_getnewaddress)
+//   - register_name_commitment (registernamecommitment)
+//   - register_identity (registeridentity)
+//   - get_transaction_confirmations (gettransaction)
+//   - wait_for_confirmations (poll confirmations)
+//   - get_identity (getidentity raw)
+//   - dump_privkey (dumpprivkey)
+//   - export_z_key (z_exportkey)
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use super::rpc_client::{make_rpc_call, VerusRpcError};
 use super::wallet_rpc::get_private_balance;
+use tokio::time::{sleep, Duration};
 
 // Updated struct to include balance for dropdown display
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -348,3 +359,302 @@ pub async fn check_identity_exists(
         }
     }
 } 
+
+// --- Registration helpers & commands ---
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NameCommitmentResponse {
+    pub txid: String,
+    pub namereservation: Value,
+}
+
+/// Get a new transparent control address (R-addr)
+#[tauri::command]
+pub async fn get_new_address(app: tauri::AppHandle) -> Result<String, String> {
+    log::info!("get_new_address called");
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    let addr = make_rpc_call::<String>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "getnewaddress", vec![])
+        .await
+        .map_err(|e| format!("getnewaddress failed: {}", e))?;
+    log::info!("get_new_address result: {}", addr);
+    Ok(addr)
+}
+
+/// Get a new shielded private address (zs-addr)
+#[tauri::command]
+pub async fn get_new_private_address(app: tauri::AppHandle) -> Result<String, String> {
+    log::info!("get_new_private_address called");
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    let zaddr = make_rpc_call::<String>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "z_getnewaddress", vec![])
+        .await
+        .map_err(|e| format!("z_getnewaddress failed: {}", e))?;
+    log::info!("get_new_private_address result: {}", zaddr);
+    Ok(zaddr)
+}
+
+/// Call registernamecommitment
+#[tauri::command]
+pub async fn register_name_commitment(
+    app: tauri::AppHandle,
+    name: String,
+    control_address: String,
+    referral_identity: Option<String>,
+    parent_namespace: Option<String>,
+) -> Result<NameCommitmentResponse, String> {
+    log::info!(
+        "register_name_commitment: name={}, control={}, referral='{}', parent='{}'",
+        name,
+        control_address,
+        referral_identity.clone().unwrap_or_else(|| "".into()),
+        parent_namespace.clone().unwrap_or_else(|| "".into())
+    );
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    // Per spec, explicitly pass empty string when not provided
+    let referral = referral_identity.unwrap_or_else(|| "".to_string());
+    let parent = parent_namespace.unwrap_or_else(|| "".to_string());
+
+    let result: Value = make_rpc_call(
+        &creds.rpc_user,
+        &creds.rpc_pass,
+        creds.rpc_port,
+        "registernamecommitment",
+        vec![json!(name), json!(control_address), json!(referral), json!(parent)],
+    )
+    .await
+    .map_err(|e| format!("registernamecommitment failed: {}", e))?;
+
+    // Expect { txid, namereservation: {...} }
+    let txid = result
+        .get("txid")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing txid in registernamecommitment response".to_string())?
+        .to_string();
+
+    let namereservation = result
+        .get("namereservation")
+        .cloned()
+        .ok_or_else(|| "Missing namereservation in response".to_string())?;
+
+    log::info!("register_name_commitment txid: {}", txid);
+    Ok(NameCommitmentResponse { txid, namereservation })
+}
+
+/// Call registeridentity with pass-through bundle, return txid
+#[tauri::command]
+pub async fn register_identity(app: tauri::AppHandle, identity_bundle: Value) -> Result<String, String> {
+    log::info!("register_identity called");
+    log::debug!("register_identity payload: {}", identity_bundle);
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    let result: Value = make_rpc_call(
+        &creds.rpc_user,
+        &creds.rpc_pass,
+        creds.rpc_port,
+        "registeridentity",
+        vec![identity_bundle],
+    )
+    .await
+    .map_err(|e| format!("registeridentity failed: {}", e))?;
+
+    // Try common shapes: string txid or object with txid
+    if let Some(txid) = result.as_str() {
+        log::info!("register_identity txid: {}", txid);
+        return Ok(txid.to_string());
+    }
+    if let Some(txid) = result.get("txid").and_then(|v| v.as_str()) {
+        log::info!("register_identity txid: {}", txid);
+        return Ok(txid.to_string());
+    }
+    // Fallback to serialize
+    log::warn!("register_identity unexpected response shape: {}", result);
+    Ok(result.to_string())
+}
+
+/// Get confirmations for a txid using gettransaction
+#[tauri::command]
+pub async fn get_transaction_confirmations(app: tauri::AppHandle, txid: String) -> Result<u64, String> {
+    log::info!("get_transaction_confirmations({}, ..)", txid);
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    // Try gettransaction first
+    let primary = make_rpc_call::<Value>(
+        &creds.rpc_user,
+        &creds.rpc_pass,
+        creds.rpc_port,
+        "gettransaction",
+        vec![json!(txid.clone())],
+    )
+    .await;
+    let result: Value = match primary {
+        Ok(val) => val,
+        Err(e) => {
+            log::warn!("gettransaction failed for {}: {:?}. Falling back to getrawtransaction(verbose)", txid, e);
+            make_rpc_call::<Value>(
+                &creds.rpc_user,
+                &creds.rpc_pass,
+                creds.rpc_port,
+                "getrawtransaction",
+                vec![json!(txid.clone()), json!(true)],
+            )
+            .await
+            .map_err(|e2| format!("gettransaction failed and getrawtransaction fallback also failed: {}", e2))?
+        }
+    };
+
+    let confs = result
+        .get("confirmations")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    log::info!("tx {} confirmations: {}", txid, confs);
+    Ok(confs)
+}
+
+/// Wait until a tx reaches min confirmations, or timeout
+#[tauri::command]
+pub async fn wait_for_confirmations(
+    app: tauri::AppHandle,
+    txid: String,
+    min_confirmations: u64,
+    interval_secs: u64,
+    timeout_secs: u64,
+) -> Result<bool, String> {
+    let start = std::time::Instant::now();
+    loop {
+        let confs = match get_transaction_confirmations(app.clone(), txid.clone()).await {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("wait_for_confirmations get tx error: {}", e);
+                return Err(e);
+            }
+        };
+        if confs >= min_confirmations {
+            return Ok(true);
+        }
+        if start.elapsed() >= Duration::from_secs(timeout_secs) {
+            log::warn!(
+                "wait_for_confirmations timeout: tx={}, waited_secs={}, required_confs={}",
+                txid,
+                timeout_secs,
+                min_confirmations
+            );
+            return Ok(false);
+        }
+        sleep(Duration::from_secs(interval_secs)).await;
+    }
+}
+
+/// Raw getidentity call to retrieve identity object
+#[tauri::command]
+pub async fn get_identity(app: tauri::AppHandle, identity_name: String) -> Result<Value, String> {
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    make_rpc_call::<Value>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "getidentity", vec![json!(identity_name)])
+        .await
+        .map_err(|e| format!("getidentity failed: {}", e))
+}
+
+/// Check if identity exists (returns true/false instead of erroring on not found)
+#[tauri::command]
+pub async fn check_identity_ready(app: tauri::AppHandle, identity_name: String) -> Result<bool, String> {
+    log::info!("check_identity_ready: checking {}", identity_name);
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+
+    match make_rpc_call::<Value>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "getidentity", vec![json!(identity_name)]).await {
+        Ok(_) => {
+            log::info!("check_identity_ready: {} exists", identity_name);
+            Ok(true)
+        }
+        Err(e) => {
+            // Handle specific "not found" errors
+            match e {
+                VerusRpcError::Rpc { code, ref message } if code == -5 => {
+                    // Code -5: Identity not found (expected during registration process)
+                    log::debug!("check_identity_ready: {} not found yet (code -5): {}", identity_name, message);
+                    Ok(false)
+                }
+                VerusRpcError::ParseError(ref msg) if msg.contains("500 Internal Server Error") => {
+                    // 500 errors for getidentity usually mean "not found" as well
+                    log::debug!("check_identity_ready: {} not found yet (500 error): {}", identity_name, msg);
+                    Ok(false)
+                }
+                _ => {
+                    // Propagate other errors (network, auth, etc.)
+                    log::error!("check_identity_ready: unexpected error for {}: {:?}", identity_name, e);
+                    Err(format!("Error checking identity: {}", e))
+                }
+            }
+        }
+    }
+}
+
+/// Wait for identity to become available with polling
+#[tauri::command]
+pub async fn wait_for_identity_ready(
+    app: tauri::AppHandle,
+    identity_name: String,
+    interval_secs: u64,
+    timeout_secs: u64,
+) -> Result<bool, String> {
+    log::info!("wait_for_identity_ready: waiting for {} (timeout: {}s)", identity_name, timeout_secs);
+    let start = std::time::Instant::now();
+    
+    loop {
+        match check_identity_ready(app.clone(), identity_name.clone()).await {
+            Ok(true) => {
+                log::info!("wait_for_identity_ready: {} is ready", identity_name);
+                return Ok(true);
+            }
+            Ok(false) => {
+                log::debug!("wait_for_identity_ready: {} not ready yet, continuing to poll", identity_name);
+                // Continue polling
+            }
+            Err(e) => {
+                log::error!("wait_for_identity_ready: error checking {}: {}", identity_name, e);
+                return Err(e);
+            }
+        }
+
+        if start.elapsed() >= Duration::from_secs(timeout_secs) {
+            log::warn!("wait_for_identity_ready: timeout waiting for {}", identity_name);
+            return Ok(false);
+        }
+
+        sleep(Duration::from_secs(interval_secs)).await;
+    }
+}
+
+/// Export transparent private key (WIF) for control R-addr
+#[tauri::command]
+pub async fn dump_privkey(app: tauri::AppHandle, address: String) -> Result<String, String> {
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    make_rpc_call::<String>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "dumpprivkey", vec![json!(address)])
+        .await
+        .map_err(|e| format!("dumpprivkey failed: {}", e))
+}
+
+/// Export shielded private key for zs-addr
+#[tauri::command]
+pub async fn export_z_key(app: tauri::AppHandle, z_address: String) -> Result<String, String> {
+    let creds = crate::credentials::load_credentials(app)
+        .await
+        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+    make_rpc_call::<String>(&creds.rpc_user, &creds.rpc_pass, creds.rpc_port, "z_exportkey", vec![json!(z_address)])
+        .await
+        .map_err(|e| format!("z_exportkey failed: {}", e))
+}

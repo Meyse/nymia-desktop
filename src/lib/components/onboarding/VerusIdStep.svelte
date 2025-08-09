@@ -7,7 +7,7 @@
 // - Fetches individual balances using get_identity_balance in parallel
 // - Filters out VerusIDs where balance fetch fails (private address not in wallet)
 // - Shows skeleton loading during name fetch and balance loading states
-// - Sorts final list by balance (highest first) after all balances load
+// - Sorts final list alphabetically by name after all balances load
 // - Enhanced UX with smooth loading transitions and real-time updates
 // - Added currency symbol support - balances now display with proper ticker (e.g., "12.5 VRSC")
 // - Handles edge case where all identities get filtered out due to missing private keys
@@ -16,6 +16,7 @@
 // - Made "Get VerusID" button always visible immediately, regardless of fetch status
 // - Removed all credential checking logic since credentials are guaranteed by BlockchainDetectionStep
 // - Simplified error handling to focus on VerusID-specific issues only
+// - Auto-select newly created VerusID after registration completion
 
     import { createEventDispatcher, onMount } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
@@ -72,7 +73,7 @@
         return `${formattedAmount} ${currencySymbol}`;
     }
 
-    async function fetchIdentities() {
+    async function fetchIdentities(): Promise<void> {
         // Step 1: Show skeleton loading initially
         fetchStatus = 'fetching';
         fetchError = null;
@@ -202,11 +203,9 @@
             return;
         }
         
-        // Sort identities by balance (highest first)
+        // Sort identities alphabetically by name
         loginIdentities.sort((a, b) => {
-            const balanceA = a.balance || 0;
-            const balanceB = b.balance || 0;
-            return balanceB - balanceA;
+            return a.formatted_name.localeCompare(b.formatted_name);
         });
         
         // Update dropdown options with filtered, final balances and sorting
@@ -244,8 +243,35 @@
         showRegistrationModal = true;
     }
 
-    function handleCloseRegistrationModal() {
+    function handleCloseRegistrationModal(event: CustomEvent<{ refresh?: boolean; newIdentityName?: string | null }>) {
         showRegistrationModal = false;
+        // Refresh identities if a new one was created
+        if (event?.detail?.refresh) {
+            console.log('VerusIdStep: Refreshing identities after registration completion');
+            const newIdentityName = event?.detail?.newIdentityName;
+            
+            // Refresh identities and then auto-select the new one
+            fetchIdentities().then(() => {
+                if (newIdentityName) {
+                    autoSelectNewIdentity(newIdentityName);
+                }
+            });
+        }
+    }
+
+    function autoSelectNewIdentity(identityName: string) {
+        console.log('VerusIdStep: Auto-selecting new identity:', identityName);
+        
+        // Find the identity by formatted name
+        const newIdentity = loginIdentities.find(id => id.formatted_name === identityName);
+        
+        if (newIdentity) {
+            selectedIdentityIAddress = newIdentity.i_address;
+            dispatch('idSelected', { identity: newIdentity });
+            console.log('VerusIdStep: Auto-selected new identity:', newIdentity.formatted_name);
+        } else {
+            console.warn('VerusIdStep: Could not find new identity to auto-select:', identityName);
+        }
     }
 
     function handleShowVerusIdInfo() {
