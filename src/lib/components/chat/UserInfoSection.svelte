@@ -20,10 +20,12 @@
 // - Added visual hierarchy with larger "Total" text and spinner indicating waiting for confirmations
 // - Fixed Fast Messages tooltip positioning and flashing issues with proper relative positioning and pointer-events-none
 // - FIXED: Always show Private Balance and Fast Messages rows with skeleton loading states instead of hiding them
+// - Added "Fund" button when private balance is exactly 0 AND no pending balance to open funding modal
 
   import { createEventDispatcher } from 'svelte';
-  import { LogOut, Settings, Layers, Loader, FastForward, HelpCircle } from 'lucide-svelte';
+  import { LogOut, Settings, Layers, Loader, FastForward, HelpCircle, Plus } from 'lucide-svelte';
   import Avatar from '../Avatar.svelte';
+  import FundingModal from './FundingModal.svelte';
   import type { PrivateBalance, PendingBalance, UtxoInfo } from '$lib/types';
 
   // --- Props ---
@@ -33,16 +35,19 @@
   export let blockHeight: number | null = null;
   export let currencySymbol: string = 'VRSC'; // Dynamic currency symbol
   export let utxoInfo: UtxoInfo | null = null; // NEW: UTXO information for Fast Messages
-  export let isUtxoLoading: boolean = false; // NEW: Loading state for UTXO data
+  // Removed unused isUtxoLoading prop
+  export let privateAddress: string = ''; // NEW: Private address for funding
 
   // --- Events ---
   const dispatch = createEventDispatcher<{
     logout: void;
     settings: void;
+    funding: { success: boolean }; // NEW: For funding completion
   }>();
 
   // --- State ---
   let showTooltip = false;
+  let showFundingModal = false; // NEW: Funding modal state
 
   function handleLogout() {
     dispatch('logout');
@@ -50,6 +55,19 @@
   
   function handleSettings() {
     dispatch('settings');
+  }
+
+  function handleFunding() {
+    showFundingModal = true;
+  }
+
+  function handleCloseFundingModal(event: CustomEvent<{ success: boolean }>) {
+    showFundingModal = false;
+    
+    // If funding was successful, dispatch event to parent
+    if (event.detail.success) {
+      dispatch('funding', { success: true });
+    }
   }
 
   function showTooltipOnHover() {
@@ -69,6 +87,9 @@
 
   // Dynamic labels based on whether there's a discrepancy
   $: balanceLabel = showPendingBalance ? 'Available' : 'Private Balance';
+
+  // Check if balance is exactly 0 AND no pending balance to show Fund button
+  $: showFundButton = privateBalance === 0 && (pendingBalance === null || pendingBalance === 0);
 
   // Format block height with commas
   function formatBlockHeight(height: number): string {
@@ -99,9 +120,20 @@
   <div class="flex items-center justify-between text-xs mb-3">
     <span class={`cursor-default select-none ${showPendingBalance ? 'text-white/60' : 'text-white/45'}`}>{balanceLabel}</span>
     {#if formattedPrivateBalance !== null}
-      <span class={`font-mono font-bold cursor-default select-none ${showPendingBalance ? 'text-green-400' : 'text-green-300'}`}>
-        {formattedPrivateBalance}
-      </span>
+      {#if showFundButton}
+        <!-- Fund button when balance is exactly 0 -->
+        <button
+          on:click={handleFunding}
+          class="inline-flex items-center px-2 py-1 text-xs font-medium text-white bg-brand-green hover:bg-[#32905D] border border-transparent rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-green transition-colors duration-150"
+        >
+          <Plus size={12} class="mr-1" />
+          Fund
+        </button>
+      {:else}
+        <span class={`font-mono font-bold cursor-default select-none ${showPendingBalance ? 'text-green-400' : 'text-green-300'}`}>
+          {formattedPrivateBalance}
+        </span>
+      {/if}
     {:else}
       <!-- Skeleton loader for private balance -->
       <div class="skeleton-loader w-20 h-4 rounded"></div>
@@ -113,6 +145,8 @@
     <div class="flex items-center">
       <span class="text-white/45 cursor-default select-none">Fast Messages</span>
       <div class="ml-1 relative"
+           role="button"
+           tabindex="0"
            on:mouseenter={showTooltipOnHover}
            on:mouseleave={hideTooltipOnLeave}>
         <HelpCircle size={14} class="text-white/50 hover:text-white/80" />
@@ -207,6 +241,14 @@
     {/if}
   </div>
 </div>
+
+<!-- Funding Modal -->
+<FundingModal 
+  bind:show={showFundingModal}
+  privateAddress={privateAddress}
+  currencySymbol={currencySymbol}
+  on:close={handleCloseFundingModal}
+/>
 
 <style>
   /* Skeleton loader animation */

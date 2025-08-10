@@ -7,18 +7,23 @@
 // - Enhanced iconography and layout.
 // - Made text consistent with PersistencePromptModal.
 // - Added better visual hierarchy.
+// - Added private address display section with copy functionality at the top.
+// - Integrated Button component for consistent copy action styling.
 
     import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-    import { Trash2, Database, RotateCcw, ArrowLeft, HardDriveDownload, AlertCircle, MessageSquare, Save } from 'lucide-svelte';
+    import { Trash2, Database, RotateCcw, ArrowLeft, HardDriveDownload, AlertCircle, MessageSquare, Save, Copy, Check, Wallet } from 'lucide-svelte';
     import ConfirmDeleteModal from './ConfirmDeleteModal.svelte';
+    import Button from '../Button.svelte';
 
     // --- Props ---
     export let currentPersistenceSetting: boolean | null = null; // The current value from parent
-    export let loggedInUserIAddress: string | null = null; // Needed for delete command
+    export let privateAddress: string = ''; // NEW: Private address for display and copying
 
     // --- State ---
     let showConfirmDelete = false;
     let internalPersistenceEnabled: boolean = false;
+    let copySuccess = false; // NEW: Copy success state
+    let copyTimeout: ReturnType<typeof setTimeout> | null = null; // NEW: Copy timeout
 
     // --- Events ---
     const dispatch = createEventDispatcher<{ 
@@ -49,6 +54,10 @@
 
 	onDestroy(() => {
 		window.removeEventListener('keydown', handleKeydown);
+        // Cleanup copy timeout
+        if (copyTimeout) {
+            clearTimeout(copyTimeout);
+        }
 	});
 
     // --- Functions ---
@@ -76,6 +85,22 @@
         dispatch('closeSettings');
     }
 
+    // NEW: Handle copying private address
+    async function handleCopyAddress() {
+        try {
+            await navigator.clipboard.writeText(privateAddress);
+            copySuccess = true;
+            
+            // Reset copy success after 2 seconds
+            if (copyTimeout) clearTimeout(copyTimeout);
+            copyTimeout = setTimeout(() => {
+                copySuccess = false;
+            }, 2000);
+        } catch (error) {
+            console.error('Failed to copy address:', error);
+        }
+    }
+
 </script>
 
 <div class="flex flex-col h-full">
@@ -93,6 +118,46 @@
 
     <!-- Settings Content -->
     <div class="flex-grow p-3 space-y-4 overflow-y-auto">
+
+        <!-- Private Address Card -->
+        <div class="bg-dark-bg-secondary rounded-lg border border-dark-border-primary shadow-sm overflow-hidden">
+            <div class="border-b border-dark-border-primary bg-dark-bg-primary px-3 py-2 flex items-center">
+                <Wallet size={14} class="text-green-400 mr-2" />
+                <h3 class="text-sm font-medium text-dark-text-primary">Your Private Address</h3>
+            </div>
+            
+            <div class="p-3">
+                <div class="space-y-2">
+                    <p class="text-xs text-dark-text-secondary">
+                        Send funds to this address to enable sending chat messages
+                    </p>
+                    
+                    {#if privateAddress}
+                        <div class="flex items-center space-x-2 p-3 bg-dark-bg-primary border border-dark-border-primary rounded-md">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-xs font-mono text-dark-text-secondary break-all">
+                                    {privateAddress}
+                                </p>
+                            </div>
+                            <Button
+                                variant="secondary"
+                                disabled={!privateAddress}
+                                iconComponent={copySuccess ? Check : Copy}
+                                on:click={handleCopyAddress}
+                            >
+                                {copySuccess ? 'Copied!' : 'Copy'}
+                            </Button>
+                        </div>
+                    {:else}
+                        <div class="p-3 bg-dark-bg-primary border border-dark-border-primary rounded-md">
+                            <p class="text-xs text-dark-text-disabled italic">
+                                Private address not available
+                            </p>
+                        </div>
+                    {/if}
+                </div>
+            </div>
+        </div>
 
         <!-- Persistence Setting Card -->
         <div class="bg-dark-bg-secondary rounded-lg border border-dark-border-primary shadow-sm overflow-hidden">
@@ -124,7 +189,7 @@
                             <span class="sr-only">Enable chat history persistence</span>
                             <span 
                                 class={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform duration-200 ease-in-out ${internalPersistenceEnabled ? 'translate-x-6' : 'translate-x-1'}`}
-                            />
+                            ></span>
                         </button>
                     {:else}
                         <span class="text-xs text-dark-text-disabled italic">Loading...</span>

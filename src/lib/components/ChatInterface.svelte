@@ -27,6 +27,7 @@
 // - Added Fast Messages feature with UTXO data polling (1-second intervals) and display integration
 // - FIXED: Added proper overflow handling to prevent horizontal scrolling at layout level
 // - CONVERSATION SORTING: Added automatic sorting by most recent message timestamp (most recent first)
+// - Added private address prop to SettingsView for user address access and funding
 
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -756,7 +757,7 @@
       blockHeight={blockHeight}
       currencySymbol={currencySymbol}
       utxoInfo={utxoInfo}
-      isUtxoLoading={isUtxoLoading}
+      privateAddress={loggedInIdentity?.private_address || ''}
       on:logout={handleLogout}
       on:settings={handleSettings}
     />
@@ -767,7 +768,7 @@
     {#if showSettingsView}
         <SettingsView 
             currentPersistenceSetting={persistenceSetting}
-            {loggedInUserIAddress}
+            privateAddress={loggedInIdentity?.private_address || ''}
             on:togglePersistence={handlePersistenceToggle}
             on:deleteHistory={handleDeleteHistory}
             on:closeSettings={handleCloseSettings}

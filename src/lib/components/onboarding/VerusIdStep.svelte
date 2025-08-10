@@ -1,22 +1,22 @@
 <script lang="ts">
 // Component: src/lib/components/onboarding/VerusIdStep.svelte
-// Description: Handles fetching and selecting a VerusID with progressive balance loading and filtering.
+// Description: Handles fetching and selecting a VerusID with progressive balance loading and improved UX.
 // Changes:
 // - Implemented progressive loading: skeleton → names → balances
 // - Uses get_login_identities_fast for immediate name loading
+// - Sorts identities alphabetically IMMEDIATELY after fetching names (before balance loading)
 // - Fetches individual balances using get_identity_balance in parallel
-// - Filters out VerusIDs where balance fetch fails (private address not in wallet)
+// - KEEPS all valid VerusIDs even if balance fetch fails (shows "-" instead of hiding)
 // - Shows skeleton loading during name fetch and balance loading states
-// - Sorts final list alphabetically by name after all balances load
 // - Enhanced UX with smooth loading transitions and real-time updates
 // - Added currency symbol support - balances now display with proper ticker (e.g., "12.5 VRSC")
-// - Handles edge case where all identities get filtered out due to missing private keys
 // - Added "Get VerusID" button underneath dropdown to open registration modal
 // - Integrated VerusIdRegistrationModal for new VerusID creation flow
 // - Made "Get VerusID" button always visible immediately, regardless of fetch status
 // - Removed all credential checking logic since credentials are guaranteed by BlockchainDetectionStep
 // - Simplified error handling to focus on VerusID-specific issues only
 // - Auto-select newly created VerusID after registration completion
+// - Fixed: No longer filters out identities due to temporary balance fetch failures
 
     import { createEventDispatcher, onMount } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
@@ -96,7 +96,6 @@
             
             // Step 2: Get identities without balances (fast)
             const ids = await invoke<FormattedIdentity[]>('get_login_identities_fast'); 
-            loginIdentities = ids;
             
             if (ids.length === 0) {
                 fetchError = "No eligible VerusIDs found. Identities must have private addresses and spending/signing permissions.";
@@ -106,7 +105,11 @@
                 return;
             }
 
-            // Step 3: Show identities with skeleton balances
+            // Step 3: Sort identities alphabetically immediately
+            ids.sort((a, b) => a.formatted_name.localeCompare(b.formatted_name));
+            loginIdentities = ids;
+
+            // Step 4: Show all identities in alphabetical order with skeleton balances
             ids.forEach(id => {
                 balanceLoadingStatus.set(id.i_address, 'loading');
             });
@@ -157,6 +160,8 @@
     }
 
     async function fetchBalancesProgressively(identities: FormattedIdentity[]) {
+        console.log(`VerusIdStep: Fetching balances for ${identities.length} identities...`);
+        
         // Fetch all balances in parallel
         const balancePromises = identities.map(async (identity) => {
             try {
@@ -165,50 +170,39 @@
                     privateAddress: identity.private_address 
                 });
                 
-                // Update the identity with balance
-                const updatedIdentity = { ...identity, balance };
-                
                 // Update balance loading status
                 balanceLoadingStatus.set(identity.i_address, 'loaded');
                 
-                return { identity: updatedIdentity, success: true };
+                return { identity: { ...identity, balance }, success: true };
             } catch (error) {
                 console.error(`Failed to fetch balance for ${identity.formatted_name}:`, error);
-                console.log(`Filtering out ${identity.formatted_name} - private address not in wallet`);
+                console.warn(`Balance fetch failed for ${identity.formatted_name} - will show as unavailable`);
+                
+                // Update balance loading status to error (will show "-" in UI)
                 balanceLoadingStatus.set(identity.i_address, 'error');
-                return { identity, success: false };
+                
+                return { identity: { ...identity, balance: null }, success: false };
             }
         });
 
         // Wait for all balances to complete
         const results = await Promise.allSettled(balancePromises);
         
-        // Filter to only keep identities with successful balance fetches
-        const successfulIdentities: FormattedIdentity[] = [];
+        // Update all identities with their balance results (keep ALL identities)
+        const updatedIdentities: FormattedIdentity[] = [];
         for (const result of results) {
-            if (result.status === 'fulfilled' && result.value.success) {
-                successfulIdentities.push(result.value.identity);
+            if (result.status === 'fulfilled') {
+                updatedIdentities.push(result.value.identity);
+            } else {
+                // If promise was rejected, keep the original identity with null balance
+                console.error('Balance fetch promise rejected:', result.reason);
             }
         }
         
-        // Update loginIdentities to only contain identities with valid balances
-        loginIdentities = successfulIdentities;
+        // Update loginIdentities with balance information (keep in same alphabetical order)
+        loginIdentities = updatedIdentities;
         
-        // Check if we have any valid identities left
-        if (loginIdentities.length === 0) {
-            fetchStatus = 'error';
-            fetchError = 'No eligible VerusIDs found. All identities failed balance verification - private addresses may not be in your wallet.';
-            loginIdentityOptions = [];
-            dispatch('idSelected', { identity: null });
-            return;
-        }
-        
-        // Sort identities alphabetically by name
-        loginIdentities.sort((a, b) => {
-            return a.formatted_name.localeCompare(b.formatted_name);
-        });
-        
-        // Update dropdown options with filtered, final balances and sorting
+        // Update dropdown options with new balance information (keep same order)
         loginIdentityOptions = loginIdentities.map(id => ({ 
             id: id.i_address, 
             name: id.formatted_name, 
@@ -216,13 +210,7 @@
             balance: formatBalance(id.balance, id.i_address)
         }));
         
-        // Clear any previously selected identity if it was filtered out
-        if (selectedIdentityIAddress && !loginIdentities.find(id => id.i_address === selectedIdentityIAddress)) {
-            selectedIdentityIAddress = null;
-            dispatch('idSelected', { identity: null });
-        }
-        
-        console.log(`VerusIdStep: ${loginIdentities.length} valid identities loaded and sorted`);
+        console.log(`VerusIdStep: Balance loading complete for ${loginIdentities.length} identities`);
     }
 
     function handleIdSelection(event: CustomEvent<string | number | null>) {
