@@ -7,10 +7,13 @@
 // - Enhanced NamespaceOption to include actual fee currency name
 // - Added get_root_currency function to fetch blockchain's native currency data
 // - Added blockchain ID to currency name mapping for getcurrency calls
+// - Added startblock filtering: only include namespaces where startblock <= current block height
+// - Updated both get_available_namespaces and get_root_currency to filter out future startblocks
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use super::rpc_client::{make_rpc_call, VerusRpcError};
+use super::rpc_client::make_rpc_call;
+use super::wallet_rpc::connect_and_get_block_height;
 use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -141,6 +144,15 @@ pub async fn get_available_namespaces(
     let creds = crate::credentials::load_credentials(app).await
         .map_err(|e| format!("Failed to load credentials: {}", e))?;
     
+    // Get current block height for startblock filtering
+    let current_block_height = connect_and_get_block_height(
+        creds.rpc_user.clone(),
+        creds.rpc_pass.clone(),
+        creds.rpc_port,
+    ).await
+        .map_err(|e| format!("Failed to get current block height: {}", e))?;
+    
+    println!("Current block height: {}", current_block_height);
     println!("Credentials loaded, calling listcurrencies...");
     
     // Call listcurrencies RPC method
@@ -182,9 +194,10 @@ pub async fn get_available_namespaces(
             index + 1, currencies_array.len(), def.name, def.options, def.proofprotocol
         );
         
-        // Filter criteria: options must be 33 or 41, and proofprotocol must be 1
-        if (def.options == 33 || def.options == 41) && def.proofprotocol == 1 {
-            println!("  ✓ Currency {} passed options/proofprotocol check", def.name);
+        // Filter criteria: options must be 33 or 41, proofprotocol must be 1, and startblock must be <= current height
+        if (def.options == 33 || def.options == 41) && def.proofprotocol == 1 && def.startblock <= current_block_height {
+            println!("  ✓ Currency {} passed options/proofprotocol/startblock check (startblock: {} <= current: {})", 
+                def.name, def.startblock, current_block_height);
             
             // NEW: Check that currency has reserves and ALL reserves > 0
             if let Some(reserves) = &currency_info.bestcurrencystate.reservecurrencies {
@@ -214,8 +227,9 @@ pub async fn get_available_namespaces(
                 println!("  ✗ Currency {} has no reserves field", def.name);
             }
         } else {
-            println!("  ✗ Currency {} failed options/proofprotocol check (options: {}, proofprotocol: {})", 
-                def.name, def.options, def.proofprotocol);
+            let startblock_check = if def.startblock <= current_block_height { "✓" } else { "✗" };
+            println!("  ✗ Currency {} failed initial checks (options: {}, proofprotocol: {}, startblock: {} {} current: {})", 
+                def.name, def.options, def.proofprotocol, def.startblock, startblock_check, current_block_height);
         }
     }
     
@@ -241,7 +255,6 @@ pub async fn get_available_namespaces(
         let mut batch_futures = Vec::new();
         
         for currency_info in batch {
-            let currency_id = currency_info.currencydefinition.currencyid.clone();
             let rpc_user = creds.rpc_user.clone();
             let rpc_pass = creds.rpc_pass.clone();
             let rpc_port = creds.rpc_port;
@@ -317,6 +330,16 @@ pub async fn get_root_currency(
     let creds = crate::credentials::load_credentials(app).await
         .map_err(|e| format!("Failed to load credentials: {}", e))?;
     
+    // Get current block height for startblock filtering
+    let current_block_height = connect_and_get_block_height(
+        creds.rpc_user.clone(),
+        creds.rpc_pass.clone(),
+        creds.rpc_port,
+    ).await
+        .map_err(|e| format!("Failed to get current block height: {}", e))?;
+    
+    println!("Current block height: {}", current_block_height);
+    
     // Get the currency name for this blockchain
     let currency_name = get_currency_name_for_blockchain(&blockchain_id)
         .ok_or_else(|| format!("Unsupported blockchain: {}", blockchain_id))?;
@@ -335,23 +358,37 @@ pub async fn get_root_currency(
     
     println!("Got getcurrency response for {}", currency_name);
     
-    // Parse the response
-    let root_currency: RootCurrencyResponse = serde_json::from_value::<RootCurrencyResponse>(response.clone())
+    // Parse the response as full GetCurrencyResponse to access startblock
+    let currency_details: GetCurrencyResponse = serde_json::from_value::<GetCurrencyResponse>(response.clone())
         .map_err(|e| {
             println!("Failed to parse getcurrency response: {}", e);
             println!("Response: {}", serde_json::to_string_pretty(&response).unwrap_or_else(|_| "Unable to serialize".to_string()));
             format!("Failed to parse getcurrency response: {}", e)
         })?;
     
+    // Check startblock if available
+    if let Some(startblock) = currency_details.startblock {
+        if startblock > current_block_height {
+            return Err(format!(
+                "Root currency {} has not started yet (startblock: {} > current: {})", 
+                currency_name, startblock, current_block_height
+            ));
+        }
+        println!("Root currency {} startblock check passed (startblock: {} <= current: {})", 
+            currency_name, startblock, current_block_height);
+    } else {
+        println!("Root currency {} has no startblock field - assuming active", currency_name);
+    }
+    
     // Convert to NamespaceOption format
     let namespace_option = NamespaceOption {
-        name: root_currency.name.clone(),
-        currency_id: root_currency.currencyid,
-        registration_fee: root_currency.idregistrationfees,
-        fully_qualified_name: root_currency.name.clone(),
-        fee_currency_name: root_currency.name.clone(), // Root currency fees are paid in itself
+        name: currency_details.name.clone(),
+        currency_id: currency_details.currencyid,
+        registration_fee: currency_details.idregistrationfees,
+        fully_qualified_name: currency_details.name.clone(),
+        fee_currency_name: currency_details.name.clone(), // Root currency fees are paid in itself
         options: 41, // Assume root currencies support referral system
-        id_referral_levels: root_currency.idreferrallevels,
+        id_referral_levels: currency_details.idreferrallevels.unwrap_or(0),
     };
     
     println!("Root currency created: {} (fee: {} {})", 

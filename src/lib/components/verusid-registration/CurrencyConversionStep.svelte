@@ -80,6 +80,7 @@
 
   // Tooltip state
   let showBufferTooltip = false;
+  let showAddressTooltip = false;
 
   // Event dispatcher
   const dispatch = createEventDispatcher<{
@@ -439,6 +440,14 @@
     showBufferTooltip = false;
   }
 
+  function showAddressTooltipOnHover() {
+    showAddressTooltip = true;
+  }
+
+  function hideAddressTooltipOnLeave() {
+    showAddressTooltip = false;
+  }
+
   function startTimer() {
     conversionStartTime = Date.now();
     elapsedSeconds = 0;
@@ -621,8 +630,28 @@
         <div class="flex items-center space-x-2">
           <!-- Source Address -->
           <div class="flex-1">
+            <div class="relative mb-2">
+              <div class="flex items-center">
+                <span class="block text-sm font-medium text-white mb-1">You send ({sourceCurrency})</span>
+                <div class="ml-1 relative"
+                     role="button"
+                     tabindex="0"
+                     on:mouseenter={showAddressTooltipOnHover}
+                     on:mouseleave={hideAddressTooltipOnLeave}>
+                  <HelpCircle size={12} class="text-white/40 hover:text-white/60" />
+                  
+                  <!-- Tooltip -->
+                  {#if showAddressTooltip}
+                    <div class="absolute bottom-5 left-0 bg-black border border-dark-border-primary rounded-lg p-3 shadow-lg w-64 z-50 cursor-default select-none pointer-events-none">
+                      <div class="text-xs text-white/90 leading-relaxed">
+                        Only shows balances from traditional R-addresses. VerusID i-addresses (if any) are not included in this conversion step.
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            </div>
             <CustomDropdown
-              label={`You send (${sourceCurrency})`}
               options={sourceAddressOptions}
               bind:selectedId={selectedSourceAddress}
               placeholder="-- Select source --"
