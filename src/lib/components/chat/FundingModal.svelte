@@ -1,24 +1,19 @@
 <!-- 
   Component: src/lib/components/chat/FundingModal.svelte
-  Description: Modal for funding a private address with options for manual and automatic funding
+  Description: Modal for displaying a private address that users need to fund to send messages
   Features:
   - Shows user's z-address with copy functionality
-  - Automatic funding option for 1 Fast Message (1 x 0.0001 UTXO)
-  - Manual funding instructions
-  - Pre-validates wallet balance before allowing funding
+  - Provides clear instructions for manual funding from Verus wallets
+  - Informs users they can find the address later in Settings
   Changes:
-  - Created new component for private address funding functionality
-  - Integrates with Modal.svelte for consistent styling
-  - Uses Tauri commands for wallet balance checking and funding
-  - Provides clear UX for both technical and non-technical users
-  - Updated styling to match NewChatModal design and button patterns
-  - Uses Button component with primary/secondary variants
-  - Fixed header layout and close button alignment
+  - Simplified to remove automatic funding functionality
+  - Updated styling to match VerusIdInfoModal design patterns
+  - Revised messaging to focus on Verus Desktop and CLI funding sources
+  - Added reference to Settings for finding the address later
 -->
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { Copy, Check, Loader, AlertCircle, Zap, X } from 'lucide-svelte';
+  import { createEventDispatcher } from 'svelte';
+  import { Copy, Check, X } from 'lucide-svelte';
   import Modal from '../Modal.svelte';
   import Button from '../Button.svelte';
 
@@ -33,61 +28,23 @@
   }>();
 
   // State
-  let walletBalance: number | null = null;
-  let isCheckingBalance = false;
-  let balanceError: string | null = null;
-  let isFunding = false;
-  let fundingError: string | null = null;
   let copySuccess = false;
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Constants
-  const UTXO_AMOUNT = 0.0001;
-  const UTXO_COUNT = 1;
-  const TOTAL_FUNDING_AMOUNT = UTXO_AMOUNT * UTXO_COUNT; // 0.0001
+  // Constants  
+  const MIN_FUNDING_AMOUNT = 0.0001;
 
-  // Computed - use fixed fee estimate
-  $: estimatedFees = 0.0001; // Fixed fee estimate
-  $: totalRequired = TOTAL_FUNDING_AMOUNT + estimatedFees; // 0.0001 + 0.0001 = 0.0002
-  $: canAffordFunding = walletBalance !== null && walletBalance >= totalRequired;
-
-  // Lifecycle
-  onMount(() => {
-    if (show) {
-      checkWalletBalance();
-    }
-  });
-
-  // Watch show prop to check balance when modal opens
+  // Watch show prop to reset state when modal opens
   $: if (show) {
-    checkWalletBalance();
     resetState();
   }
 
   // Functions
   function resetState() {
-    isFunding = false;
-    fundingError = null;
     copySuccess = false;
     if (copyTimeout) {
       clearTimeout(copyTimeout);
       copyTimeout = null;
-    }
-  }
-
-  async function checkWalletBalance() {
-    isCheckingBalance = true;
-    balanceError = null;
-    
-    try {
-      const walletInfo = await invoke<{ balance: number }>('get_wallet_info');
-      walletBalance = walletInfo.balance;
-    } catch (error) {
-      console.error('Failed to check wallet balance:', error);
-      balanceError = 'Failed to check wallet balance';
-      walletBalance = null;
-    } finally {
-      isCheckingBalance = false;
     }
   }
 
@@ -106,43 +63,10 @@
     }
   }
 
-  async function handleAutoFunding() {
-    if (!canAffordFunding || !privateAddress || isFunding) return;
 
-    isFunding = true;
-    fundingError = null;
-
-    console.log('🚀 Starting funding process:', {
-      privateAddress,
-      currencySymbol,
-      amount: UTXO_AMOUNT,
-      totalRequired,
-      walletBalance
-    });
-
-    try {
-      const txid = await invoke<string>('fund_private_address_for_messages_cmd', {
-        zAddress: privateAddress,
-        currency: currencySymbol,
-      });
-
-      console.log('✅ Funding successful, txid:', txid);
-      
-      // Close modal and notify parent of success
-      dispatch('close', { success: true });
-    } catch (error) {
-      console.error('❌ Funding failed:', error);
-      fundingError = typeof error === 'string' ? error : 'Funding failed. Please try again.';
-      isFunding = false;
-    }
-  }
 
   function handleClose() {
     dispatch('close', { success: false });
-  }
-
-  function formatCurrency(amount: number): string {
-    return `${amount.toFixed(4)} ${currencySymbol}`;
   }
 </script>
 
@@ -181,76 +105,34 @@
       </div>
     </div>
 
-    <!-- Automatic Funding Section -->
-    <div class="space-y-3">
-      <div class="flex items-center space-x-2">
-        <Zap size={16} class="text-green-400" />
-        <h3 class="text-sm font-medium text-dark-text-primary">Fund for 1 Message</h3>
+    <!-- Funding Instructions Section -->
+    <div class="space-y-4">
+      <div class="space-y-2">
+        <h3 class="font-semibold text-sm text-dark-text-primary">
+          How to Fund Your Address
+        </h3>
+        <p class="text-xs text-dark-text-secondary leading-relaxed">
+          To start sending messages, you need to fund this private address with at least <span class="font-mono text-dark-text-primary">{MIN_FUNDING_AMOUNT.toFixed(4)} {currencySymbol}</span>.
+        </p>
       </div>
-      
-      {#if isCheckingBalance}
-        <div class="flex items-center justify-center py-4">
-          <Loader size={16} class="animate-spin text-blue-400 mr-2" />
-          <span class="text-sm text-blue-300">Checking balance...</span>
-        </div>
-      {:else if balanceError}
-        <div class="flex items-center justify-between p-3 bg-red-900/30 border border-red-700/50 rounded text-sm text-red-300">
-          <div class="flex items-center space-x-2">
-            <AlertCircle size={16} />
-            <span>{balanceError}</span>
-          </div>
-          <Button
-            variant="secondary"
-            on:click={checkWalletBalance}
-          >
-            Retry
-          </Button>
-        </div>
-      {:else if walletBalance !== null}
-        <div class="space-y-3">
-          <div class="text-xs text-dark-text-secondary">
-            Cost: {formatCurrency(totalRequired)} • Available: {formatCurrency(walletBalance)}
-          </div>
-          
-          {#if canAffordFunding}
-            <div class="w-full">
-              <Button 
-                variant="primary"
-                disabled={isFunding || !privateAddress}
-                loading={isFunding}
-                loadingText="Funding..."
-                iconComponent={Zap}
-                on:click={handleAutoFunding}
-              >
-                Fund for 1 Message
-              </Button>
-            </div>
-          {:else}
-            <div class="p-3 bg-yellow-900/30 border border-yellow-700/50 rounded text-sm text-yellow-300">
-              <div class="flex items-center space-x-2">
-                <AlertCircle size={16} />
-                <span>Insufficient balance (need {formatCurrency(totalRequired)})</span>
-              </div>
-            </div>
-          {/if}
-        </div>
-      {/if}
 
-      {#if fundingError}
-        <div class="p-3 bg-red-900/30 border border-red-700/50 rounded text-sm text-red-300">
-          <div class="flex items-center space-x-2">
-            <AlertCircle size={16} />
-            <span>{fundingError}</span>
-          </div>
-        </div>
-      {/if}
-    </div>
+      <div class="space-y-2">
+        <h3 class="font-semibold text-sm text-dark-text-primary">
+          Sending Funds
+        </h3>
+        <p class="text-xs text-dark-text-secondary leading-relaxed">
+          Send {currencySymbol} to the address above from your Verus Desktop wallet or using the Verus CLI. Once the transaction is confirmed, you'll be able to send private messages.
+        </p>
+      </div>
 
-    <!-- Manual Funding Section -->
-    <div class="pt-3 border-t border-dark-border-primary">
-      <p class="text-xs text-dark-text-secondary">
-        Or send ≥{formatCurrency(UTXO_AMOUNT)} to the address above from any wallet.
-      </p>
+      <div class="space-y-2">
+        <h3 class="font-semibold text-sm text-dark-text-primary">
+          Find This Address Later
+        </h3>
+        <p class="text-xs text-dark-text-secondary leading-relaxed">
+          You can always find this address in your Settings if you need to fund it again or share it with others.
+        </p>
+      </div>
     </div>
   </div>
 </Modal>

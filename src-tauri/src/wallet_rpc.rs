@@ -8,7 +8,7 @@
 // - Added EstimateConversionRequest/Response structures and estimate_conversion function for USD pricing
 // - Added get_wallet_info function and command to get wallet balances and reserve balances
 // - Added currency conversion commands: get_wallet_addresses, get_address_currency_balances, send_currency_conversion
-// - Added fund_private_address_for_messages function and command for creating 1 UTXO of 0.0001
+// - Removed fund_private_address_for_messages functionality as it's no longer needed
 
 use serde_json::{json, Value};
 use super::rpc_client::{make_rpc_call, VerusRpcError};
@@ -489,50 +489,7 @@ pub async fn send_currency_conversion(
     .map_err(|e| format!("Failed to send currency conversion: {}", e))
 }
 
-// NEW function to fund private address for messages (1 UTXO of 0.0001)
-pub async fn fund_private_address_for_messages(
-    rpc_user: String,
-    rpc_pass: String,
-    rpc_port: u16,
-    z_address: String,
-    currency: String,
-) -> Result<String, VerusRpcError> {
-    log::info!(
-        "📞 API Call: Funding private address {} for 1 message with currency {}",
-        z_address, currency
-    );
 
-    // Create 1 output of 0.0001
-    let outputs = vec![json!({
-        "address": z_address,
-        "amount": 0.0001
-    })];
-
-    let params = vec![
-        json!("*"), // Use wildcard for automatic address selection
-        json!(outputs),
-    ];
-
-    // Enhanced logging to show exact API call
-    log::info!("🔧 RPC Command: sendcurrency");
-    log::info!("📋 RPC Params: {}", serde_json::to_string_pretty(&params).unwrap_or_else(|_| "Failed to serialize".to_string()));
-    
-    // Show the equivalent CLI command for debugging
-    log::info!("💻 Equivalent CLI: sendcurrency \"*\" '[{{\"address\":\"{}\",\"amount\":0.0001}}]'", z_address);
-
-    // Make the RPC call
-    let txid: String = make_rpc_call(
-        &rpc_user,
-        &rpc_pass,
-        rpc_port,
-        "sendcurrency",
-        params,
-    ).await?;
-
-    log::info!("✅ Private address funding successful, txid: {}", txid);
-
-    Ok(txid)
-}
 
 // NEW Tauri command to get current block height  
 #[tauri::command]
@@ -606,23 +563,3 @@ pub async fn wait_for_block_increase(
     }
 }
 
-// NEW Tauri command to fund private address for messages
-#[tauri::command]
-pub async fn fund_private_address_for_messages_cmd(
-    app: tauri::AppHandle,
-    z_address: String,
-    currency: String,
-) -> Result<String, String> {
-    let creds = crate::credentials::load_credentials(app).await
-        .map_err(|e| format!("Failed to load credentials: {}", e))?;
-
-    fund_private_address_for_messages(
-        creds.rpc_user,
-        creds.rpc_pass,
-        creds.rpc_port,
-        z_address,
-        currency
-    )
-    .await
-    .map_err(|e| format!("Failed to fund private address: {}", e))
-}

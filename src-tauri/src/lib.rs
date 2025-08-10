@@ -21,7 +21,7 @@
 // - Added macOS window customization with almost black background for native titlebar appearance
 // - Added get_utxo_info command for Fast Messages feature
 // - Added progressive loading commands: get_login_identities_fast, get_identity_balance
-// - Added fund_private_address_for_messages_cmd command for creating single UTXO for messaging
+// - Removed fund_private_address_for_messages_cmd command as automatic funding was removed
 
 mod credentials; // Added credentials module
 mod settings; // Added settings module
@@ -390,7 +390,7 @@ pub fn run() {
             crate::wallet_rpc::send_currency_conversion, // NEW
             crate::wallet_rpc::get_current_block_height, // NEW
             crate::wallet_rpc::wait_for_block_increase, // NEW
-            crate::wallet_rpc::fund_private_address_for_messages_cmd // NEW - Fund private address for messages
+
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
