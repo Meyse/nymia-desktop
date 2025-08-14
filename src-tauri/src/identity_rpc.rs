@@ -5,6 +5,7 @@
 // - Added get_login_identities_fast for immediate name loading
 // - Updated get_login_identities to maintain compatibility
 // - Added get_identity_balance for individual balance fetching
+// - Fixed handling of empty response from listidentities when no identities exist (returns early with user-friendly message)
 // - NEW: Added VerusID registration helpers and Tauri commands:
 //   - get_new_address (getnewaddress)
 //   - get_new_private_address (z_getnewaddress)
@@ -39,14 +40,34 @@ pub async fn get_login_identities_fast(
 ) -> Result<Vec<FormattedIdentity>, VerusRpcError> {
     log::info!("Fetching identities (fast mode - no balances)...");
 
-    let identities_raw: Vec<Value> = make_rpc_call(
+    let identities_raw: Vec<Value> = match make_rpc_call(
         &rpc_user,
         &rpc_pass,
         rpc_port,
         "listidentities",
         vec![json!(true), json!(true), json!(true)],
     )
-    .await?;
+    .await {
+        Ok(identities) => identities,
+        Err(VerusRpcError::Format) => {
+            // Handle the case where listidentities returns nothing (empty response)
+            // This happens when there are no identities in the wallet - RPC returns no result/error fields
+            log::info!("listidentities returned empty response (Format error) - no identities in wallet");
+            return Err(VerusRpcError::Rpc {
+                code: -1,
+                message: "No VerusIDs found in your wallet. You'll need to create a new VerusID to continue.".to_string(),
+            });
+        }
+        Err(VerusRpcError::ParseError(ref msg)) if msg.contains("EOF while parsing") || msg.contains("expected value") => {
+            // Handle alternative parse error cases for empty responses
+            log::info!("listidentities returned empty response (Parse error) - no identities in wallet");
+            return Err(VerusRpcError::Rpc {
+                code: -1,
+                message: "No VerusIDs found in your wallet. You'll need to create a new VerusID to continue.".to_string(),
+            });
+        }
+        Err(e) => return Err(e),
+    };
 
     log::info!("Received {} raw identity entries from listidentities.", identities_raw.len());
 

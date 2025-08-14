@@ -18,6 +18,8 @@
 // - Removed all credential checking logic since credentials are guaranteed by BlockchainDetectionStep
 // - Simplified error handling to focus on VerusID-specific issues only
 // - Auto-select newly created VerusID after registration completion
+// - Improved "no identities found" error messaging to be more user-friendly
+// - Fixed error parsing to properly extract messages from nested Tauri error structures
 
     import { createEventDispatcher, onMount } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
@@ -99,7 +101,7 @@
             const ids = await invoke<FormattedIdentity[]>('get_login_identities_fast'); 
             
             if (ids.length === 0) {
-                fetchError = "No eligible VerusIDs found. Identities must have private addresses and spending/signing permissions.";
+                fetchError = "No VerusIDs found in your wallet. You'll need to create a new VerusID to continue.";
                 fetchStatus = 'error';
                 showingSkeleton = false;
                 dispatch('idSelected', { identity: null });
@@ -138,7 +140,14 @@
             // Better error message handling with user-friendly messages
             let errorMessage = 'Unknown error occurred';
             if (error && typeof error === 'object') {
-                if (error.message) {
+                // Handle nested Tauri error structure (from Rust VerusRpcError)
+                if (error.RpcSpecific?.Rpc?.message) {
+                    errorMessage = error.RpcSpecific.Rpc.message;
+                } else if (error.RpcSpecific?.NetworkError) {
+                    errorMessage = error.RpcSpecific.NetworkError;
+                } else if (error.RpcSpecific?.ParseError) {
+                    errorMessage = error.RpcSpecific.ParseError;
+                } else if (error.message) {
                     errorMessage = error.message;
                 } else if (error.error) {
                     errorMessage = error.error;
@@ -149,9 +158,15 @@
                 errorMessage = String(error);
             }
             
-            // Handle VerusID-specific errors
-            if (errorMessage.includes('No eligible VerusIDs found') || errorMessage.includes('No VerusIDs with private addresses found')) {
+            // Handle specific error cases with user-friendly messages
+            if (errorMessage.includes('No VerusIDs found in your wallet')) {
+                // Backend now returns user-friendly message for empty wallet
+                fetchError = errorMessage;
+            } else if (errorMessage.includes('No eligible VerusIDs found') || errorMessage.includes('No VerusIDs with private addresses found')) {
                 fetchError = 'No eligible VerusIDs found. Identities must have private addresses and spending/signing permissions.';
+            } else if (errorMessage.includes('Format') || errorMessage.includes('RpcSpecific')) {
+                // Backup handling for empty wallet case (should be handled by backend now)
+                fetchError = 'No VerusIDs found in your wallet. You\'ll need to create a new VerusID to continue.';
             } else {
                 fetchError = `Unable to load identities: ${errorMessage}`;
             }
@@ -332,7 +347,9 @@
 
             {#if fetchStatus === 'error' && fetchError}
                 <div class="mt-4 p-3 bg-red-900/40 border border-red-700/50 rounded-md text-center">
-                    <p class="text-sm font-medium text-red-300 select-none cursor-default">Error Loading Identities</p>
+                    <p class="text-sm font-medium text-red-300 select-none cursor-default">
+                        {fetchError.includes("No VerusIDs found") ? "No VerusIDs Found" : "Error Loading Identities"}
+                    </p>
                     <p class="text-xs text-red-400 select-none cursor-default">{fetchError}</p>
                     <button
                         type="button"
